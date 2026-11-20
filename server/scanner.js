@@ -1,7 +1,8 @@
 // Orquestación de un ciclo de análisis: proveedores → normalización → fusión → modelos → motor → riesgo → registro.
 
 import * as TOA from './providers/theOddsApi.js';
-import * as OP from './providers/oddsPapi.js';
+import * as MB from './providers/matchbook.js';
+import * as BF from './providers/betfair.js';
 import * as FD from './providers/footballData.js';
 import { loadState, saveState, getKey, logError } from './store.js';
 import { evaluateEvent } from '../shared/engine/value.js';
@@ -72,21 +73,25 @@ export async function runScan() {
     const tasks = [];
     if (settings.providers.theoddsapi.enabled) {
       const key = getKey('theoddsapi');
-      if (!key) sourcesReport.push({ provider: TOA.label, status: 'sin_clave', detail: 'Falta la clave API (Configuración)' });
+      if (!key) sourcesReport.push({ provider: TOA.label, status: 'sin_clave', detail: 'Falta la clave API: sin ella no hay casas de referencia independientes (Pinnacle, etc.)' });
       else tasks.push(TOA.fetchOdds({ key, settings, signal, progress: (d) => setPhase('consultando_cuotas', d) }).then((r) => {
         lists.push(r.events); Object.assign(books, r.books); errors.push(...r.errors);
         if (r.quota) state.quota.theoddsapi = r.quota;
         sourcesReport.push({ provider: TOA.label, status: r.errors.length && !r.events.length ? 'error' : 'ok', events: r.events.length, detail: `Competiciones: ${r.sportsQueried.length}. Sin actividad: ${r.sportsInactive.join(', ') || '—'}`, quota: r.quota });
       }).catch((e) => { if (signal.aborted) throw e; errors.push(e.message); sourcesReport.push({ provider: TOA.label, status: 'error', detail: e.message }); }));
     }
-    if (settings.providers.oddspapi.enabled) {
-      const key = getKey('oddspapi');
-      if (!key) sourcesReport.push({ provider: OP.label, status: 'sin_clave', detail: 'Falta la clave API (Configuración). Necesaria para bet365.' });
-      else tasks.push(OP.fetchOdds({ key, settings, signal, progress: (d) => setPhase('consultando_cuotas', d) }).then((r) => {
-        lists.push(r.events); Object.assign(books, r.books); errors.push(...r.errors);
-        if (r.quota) state.quota.oddspapi = r.quota;
-        sourcesReport.push({ provider: OP.label, status: r.errors.length && !r.events.length ? 'error' : 'ok', events: r.events.length, detail: `Partidos consultados: ${r.fixturesFound}. Casas: ${r.bookSlugs.join(', ') || '—'}`, quota: r.quota });
-      }).catch((e) => { if (signal.aborted) throw e; errors.push(e.message); sourcesReport.push({ provider: OP.label, status: 'error', detail: e.message }); }));
+    const report = (P, r) => {
+      lists.push(r.events); Object.assign(books, r.books); errors.push(...r.errors);
+      sourcesReport.push({ provider: P.label, status: r.errors.length && !r.events.length ? 'error' : 'ok', events: r.events.length, detail: r.errors[0] || 'Precios back con liquidez mínima' });
+    };
+    const fail = (P) => (e) => { if (signal.aborted) throw e; errors.push(e.message); sourcesReport.push({ provider: P.label, status: 'error', detail: e.message }); };
+    if (settings.providers.matchbook.enabled) {
+      tasks.push(MB.fetchOdds({ settings, signal, progress: (d) => setPhase('consultando_cuotas', d) }).then((r) => report(MB, r)).catch(fail(MB)));
+    }
+    if (settings.providers.betfair.enabled) {
+      const creds = { appKey: getKey('betfair_appkey'), username: getKey('betfair_username'), password: getKey('betfair_password') };
+      if (!creds.appKey || !creds.username || !creds.password) sourcesReport.push({ provider: BF.label, status: 'sin_clave', detail: 'Faltan Application Key, usuario o contraseña de betfair.es (Configuración)' });
+      else tasks.push(BF.fetchOdds({ creds, settings, signal, progress: (d) => setPhase('consultando_cuotas', d) }).then((r) => report(BF, r)).catch(fail(BF)));
     }
     await Promise.all(tasks);
     if (signal.aborted) throw new Error('Análisis detenido por el usuario');
@@ -116,7 +121,7 @@ export async function runScan() {
       issues.push(...r.issues);
     }
 
-    // Deduplicación: misma selección en la misma casa (p. ej. Winamax FR y DE): se conserva la de mayor EV conservador.
+    // Deduplicación: misma selección y casa en varias fuentes: se conserva la de mayor EV conservador.
     const byKey = new Map();
     for (const o of opportunities) {
       const k = `${o.eventId}|${o.marketKey.replace('|op', '')}|${o.sel}|${o.book.split('_')[0]}`;
@@ -173,7 +178,8 @@ export async function runScan() {
 function sourcesFor(ev, o) {
   const src = [];
   if (ev.sources.theoddsapi) src.push({ name: 'The Odds API', ref: `evento ${ev.sources.theoddsapi}`, url: 'https://the-odds-api.com' });
-  if (ev.sources.oddspapi) src.push({ name: 'OddsPapi', ref: `fixture ${ev.sources.oddspapi}`, url: 'https://oddspapi.io' });
+  if (ev.sources.matchbook) src.push({ name: 'Matchbook API', ref: `evento ${ev.sources.matchbook}`, url: 'https://developers.matchbook.com' });
+  if (ev.sources.betfair) src.push({ name: 'Betfair Exchange API (ES)', ref: `evento ${ev.sources.betfair}`, url: 'https://developer.betfair.com' });
   if (o.model) src.push({ name: 'football-data.co.uk', ref: o.model.source, url: 'https://www.football-data.co.uk' });
   return src;
 }

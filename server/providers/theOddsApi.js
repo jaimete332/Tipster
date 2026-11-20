@@ -1,6 +1,6 @@
 // Proveedor: The Odds API (https://the-odds-api.com) — v4.
-// Cobertura relevante: Winamax (winamax_fr, winamax_de), Pinnacle, Betfair Exchange y ~25 casas europeas.
-// Bet365 NO está disponible en las regiones europeas de este proveedor (sólo bet365_au, de pago).
+// Papel: casas de REFERENCIA independientes (Pinnacle y ~25 casas europeas) para estimar la probabilidad justa.
+// Sus precios de Betfair/Matchbook se descartan como referencia cuando esas casas son el objetivo.
 // Coste: 1 crédito por región y mercado en cada llamada a /odds. /sports es gratuito.
 
 import { getJSON } from '../http.js';

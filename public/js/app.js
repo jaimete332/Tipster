@@ -29,9 +29,8 @@ const settings = () => S.data.settings;
 const bank = () => bankrollState(S.data.bankroll, S.data.bets);
 const pendingBets = () => S.data.bets.filter((b) => b.kind === 'real' && b.result === 'pendiente');
 const scan = () => S.data.lastScan;
-const BOOKS = { bet365: 'Bet365', bet365_es: 'Bet365 ES', winamax_fr: 'Winamax FR', winamax_es: 'Winamax ES', winamax_de: 'Winamax DE', pinnacle: 'Pinnacle', betfair_ex_eu: 'Betfair Exchange', betfair_ex_uk: 'Betfair Exchange UK' };
+const BOOKS = { betfair_es: 'Betfair Exchange ES', matchbook: 'Matchbook', pinnacle: 'Pinnacle', betfair_ex_eu: 'Betfair Exchange (intl.)', betfair_ex_uk: 'Betfair Exchange UK', smarkets: 'Smarkets' };
 const bookName = (k) => BOOKS[k] || scan()?.books?.[k] || k;
-const isWinamax = (k) => k.startsWith('winamax');
 
 function opportunities() {
   const sc = scan();
@@ -155,10 +154,10 @@ function phaseBlock() {
 function vDashboard() {
   const sc = scan(); const b = bank(); const opps = opportunities();
   const keys = S.data.keys;
-  const noKeys = !keys.theoddsapi.configured && !keys.oddspapi.configured;
-  const notice = noKeys
-    ? `<div class="notice bad"><b>No hay fuentes de cuotas configuradas.</b><p>La aplicación no muestra datos inventados: hasta que añadas al menos una clave API (The Odds API para Winamax/Pinnacle y OddsPapi para Bet365) no habrá oportunidades. <a href="#config">Ir a Configuración</a>.</p></div>`
-    : !keys.oddspapi.configured ? `<div class="notice"><b>Bet365 no está conectado.</b> The Odds API no ofrece Bet365 en Europa. Añade una clave de OddsPapi para incluir Bet365. Mientras tanto se analizan Winamax y las casas de referencia.</div>` : '';
+  const bfOk = keys.betfair_appkey.configured && keys.betfair_username.configured && keys.betfair_password.configured;
+  const notice = !keys.theoddsapi.configured
+    ? `<div class="notice bad"><b>Faltan casas de referencia independientes.</b><p>Matchbook funciona sin claves, pero para estimar la probabilidad justa hacen falta referencias como Pinnacle (vía The Odds API, clave gratuita). Sin ellas sólo se comparan Betfair y Matchbook entre sí y casi nunca habrá oportunidades verificadas. La aplicación no inventa datos. <a href="#config">Ir a Configuración</a>.</p></div>`
+    : !bfOk ? `<div class="notice"><b>Betfair Exchange ES no está conectado.</b> Su API oficial requiere cuenta en betfair.es y una Application Key. Mientras tanto se analiza Matchbook.</div>` : '';
   const curve = bankrollCurve(S.data.bankroll, S.data.bets);
   return `${notice}
   ${S.data.bankroll.initial ? '' : `<div class="notice info">Configura tu <b>bank inicial</b> en <a href="#bankroll">Bankroll</a> para que el sistema calcule los stakes recomendados.</div>`}
@@ -205,7 +204,6 @@ function quotaBlock() {
   const q = S.data.quota || {};
   const rows = [];
   if (q.theoddsapi) rows.push(`The Odds API: <b>${num(q.theoddsapi.remaining)}</b> créditos restantes (usados ${num(q.theoddsapi.used)})`);
-  if (q.oddspapi) rows.push(`OddsPapi: <b>${q.oddspapi.remaining != null ? num(q.oddspapi.remaining) : '?'}</b> peticiones restantes`);
   return rows.length ? `<div class="muted" style="margin-top:10px;font-size:.8rem">${rows.join('<br>')}</div>` : '';
 }
 
@@ -215,7 +213,7 @@ function filteredOpps() {
   const confRank = { baja: 0, media: 1, alta: 2 };
   return opportunities().filter((o) =>
     (!f.sport || o.sport === f.sport) &&
-    (!f.book || (f.book === 'winamax' ? isWinamax(o.book) : o.book === f.book)) &&
+    (!f.book || o.book === f.book) &&
     o.evTheoretical * 100 >= (Number(f.minEV) || 0) &&
     (!f.confidence || confRank[o.confidence] >= confRank[f.confidence]) &&
     (!f.market || o.marketGroup === f.market) &&
@@ -231,7 +229,7 @@ function filtersBar() {
   const opt = (v, l, cur) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${l}</option>`;
   return `<form class="form panel" id="filters" style="margin-bottom:14px">
     <label class="f">Deporte<select name="sport">${opt('', 'Todos', f.sport)}${Object.entries(SPORT_LABEL).map(([k, v]) => opt(k, v, f.sport)).join('')}</select></label>
-    <label class="f">Casa<select name="book">${opt('', 'Todas', f.book)}${opt('bet365', 'Bet365', f.book)}${opt('winamax', 'Winamax (todas)', f.book)}${books.filter((b) => b !== 'bet365').map((b) => opt(b, bookName(b), f.book)).join('')}</select></label>
+    <label class="f">Casa<select name="book">${opt('', 'Todas', f.book)}${[...new Set([...settings().targetBooks, ...books])].map((b) => opt(b, bookName(b), f.book)).join('')}</select></label>
     <label class="f">EV mínimo (%)<input type="number" name="minEV" step="0.5" value="${f.minEV}"></label>
     <label class="f">Confianza mínima<select name="confidence">${opt('', 'Cualquiera', f.confidence)}${opt('media', 'Media o alta', f.confidence)}${opt('alta', 'Alta', f.confidence)}</select></label>
     <label class="f">Mercado<select name="market">${opt('', 'Todos', f.market)}${opt('ganador', 'Ganador / DNB', f.market)}${opt('doble', 'Doble oportunidad', f.market)}${opt('handicap', 'Hándicap', f.market)}${opt('totales', 'Más/menos', f.market)}${opt('btts', 'Ambos marcan', f.market)}</select></label>
@@ -275,11 +273,11 @@ function oppTable(list, compact = false) {
     const st = o.stake;
     const evCell = `<span class="${cls(o.evTheoretical)}">${spct(o.evTheoretical, 2)}</span>`;
     const stakeCell = st.stake > 0 ? eur(st.stake) : '<span class="faint">0 €</span>';
-    if (compact) return `<tr class="click" data-opp="${esc(o.id)}"><td>${esc(o.event)}<div class="faint">${until(o.commence)}</div></td><td>${esc(o.market)}</td><td>${esc(o.selection)}</td><td>${esc(bookName(o.book))}</td><td class="n">${odd(o.price)}</td><td class="n">${evCell}</td><td><span class="badge ${CONF_BADGE[o.confidence]}">${o.confidence}</span></td><td class="n">${stakeCell}</td></tr>`;
+    if (compact) return `<tr class="click" data-opp="${esc(o.id)}"><td>${esc(o.event)}<div class="faint">${until(o.commence)}</div></td><td>${esc(o.market)}</td><td>${esc(o.selection)}</td><td>${esc(bookName(o.book))}</td><td class="n">${odd(o.rawPrice ?? o.price)}</td><td class="n">${evCell}</td><td><span class="badge ${CONF_BADGE[o.confidence]}">${o.confidence}</span></td><td class="n">${stakeCell}</td></tr>`;
     return `<tr class="click" data-opp="${esc(o.id)}">
       <td>${esc(SPORT_LABEL[o.sport] || o.sport)}</td><td>${esc(o.competition)}</td><td>${esc(o.event)}<div class="faint">${when(o.commence)} · ${until(o.commence)}</div></td>
       <td>${esc(o.market)}</td><td>${esc(o.selection)}</td><td>${esc(bookName(o.book))}</td>
-      <td class="n"><b>${odd(o.price)}</b></td><td class="n">${odd(o.refOdds)}</td><td class="n">${pct(o.pEst)}</td><td class="n">${pct(o.pImplied)}</td>
+      <td class="n"><b>${odd(o.rawPrice ?? o.price)}</b>${o.commission ? `<div class="faint">neta ${odd(o.price)}</div>` : ''}</td><td class="n">${odd(o.refOdds)}</td><td class="n">${pct(o.pEst)}</td><td class="n">${pct(o.pImplied)}</td>
       <td class="n">${evCell}<div><span class="badge ${EVCLASS_BADGE[o.evClass] || 'b-grey'}">${esc(o.evClassLabel)}</span></div></td>
       <td><span class="badge ${CONF_BADGE[o.confidence]}">${o.confidence}</span></td>
       <td class="n">${stakeCell}</td><td class="n">${pct(st.stakePct, 2)}</td><td class="n pos">${eur(st.profit)}</td><td class="n neg">${eur(st.loss)}</td>
@@ -296,9 +294,10 @@ async function openOpp(id) {
   const st = o.stake; const b = bank();
   const histKey = `${o.eventId}|${o.marketKey}|${o.sel}`;
   const favorable = [], risks = [];
-  favorable.push(`Cuota ${odd(o.price)} en ${bookName(o.book)} frente a cuota justa estimada ${odd(o.refOdds)} (${spct(o.price / o.refOdds - 1)}).`);
+  favorable.push(`Cuota neta ${num(o.price, 3)} en ${bookName(o.book)} frente a cuota justa estimada ${odd(o.refOdds)} (${spct(o.price / o.refOdds - 1)}).`);
+  if (o.liquidity != null) (o.liquidity >= 3 * (o.stake?.stake || 0) ? favorable : risks).push(`Liquidez al mejor precio: ${eur(o.liquidity, 0)}. En un exchange el precio puede desaparecer si otro usuario lo toma.`);
   if (o.sharpN) favorable.push(`Referencia de mercado eficiente: ${o.refBooks.filter((r) => r.sharp).map((r) => bookName(r.book)).join(', ')}.`);
-  favorable.push(`${o.nRefs} casas independientes usadas como referencia (sin contar Bet365/Winamax).`);
+  favorable.push(`${o.nRefs} casas independientes usadas como referencia (nunca la propia ${bookName(o.book)}).`);
   if (o.pModel != null) (Math.abs(o.pModel - o.pMarket) < 0.04 ? favorable : risks).push(`Modelo estadístico independiente: ${pct(o.pModel)} vs mercado ${pct(o.pMarket)}.`);
   if (o.seenCount > 1) favorable.push(`Oportunidad persistente en ${o.seenCount} análisis consecutivos.`);
   if (o.bestOther && o.price >= o.bestOther.price) favorable.push(`Es la mejor cuota del mercado (siguiente: ${odd(o.bestOther.price)} en ${bookName(o.bestOther.book)}).`);
@@ -315,7 +314,7 @@ async function openOpp(id) {
     <div>
       <div class="muted">${esc(SPORT_LABEL[o.sport] || o.sport)} · ${esc(o.competition)} · ${when(o.commence)} (${until(o.commence)})</div>
       <h2 style="margin:.2rem 0">${esc(o.event)}</h2>
-      <div>${esc(o.market)} · <b>${esc(o.selection)}</b> · ${esc(bookName(o.book))} @ <b class="num">${odd(o.price)}</b></div>
+      <div>${esc(o.market)} · <b>${esc(o.selection)}</b> · ${esc(bookName(o.book))} @ <b class="num">${odd(o.rawPrice ?? o.price)}</b>${o.commission ? ` <span class="muted">(neta de ${num(o.commission, 1)}% de comisión: ${odd(o.price)})</span>` : ''}${o.liquidity != null ? ` <span class="muted">· liquidez ${eur(o.liquidity, 0)}</span>` : ''}</div>
       <div class="btn-row" style="margin-top:8px">
         ${o.verified ? '<span class="badge b-green">VERIFICADA</span>' : '<span class="badge b-amber">PENDIENTE DE CONFIRMACIÓN</span>'}
         <span class="badge ${CONF_BADGE[o.confidence]}">confianza ${o.confidence}</span>
@@ -329,14 +328,15 @@ async function openOpp(id) {
     <section>
       <h4>Cálculo del EV</h4>
       <div class="calc">
-        <div class="row"><span>Cuota decimal</span><span>${odd(o.price)}</span></div>
+        <div class="row"><span>Cuota ofrecida</span><span>${odd(o.rawPrice ?? o.price)}</span></div>
+        ${o.commission ? `<div class="row"><span>Comisión ${num(o.commission, 1)}% → cuota neta</span><span>${num(o.price, 3)}</span></div>` : ''}
         <div class="row"><span>Probabilidad implícita (1/cuota)</span><span>${pct(o.pImplied, 2)}</span></div>
         <div class="row"><span>Prob. mercado sin margen (${esc(settings().devigMethod)})</span><span>${pct(o.pMarket, 2)}</span></div>
         ${o.pModel != null ? `<div class="row"><span>Prob. modelo estadístico</span><span>${pct(o.pModel, 2)}</span></div>` : ''}
         <div class="row"><span>Probabilidad estimada</span><span>${pct(o.pEst, 2)} ± ${pct(o.se, 2)}</span></div>
         ${o.pushP ? `<div class="row"><span>Prob. devolución</span><span>${pct(o.pushP, 2)}</span></div>` : ''}
         <div class="row"><span>EV teórico (sólo mercado)</span><span class="${cls(o.evMarketOnly)}">${spct(o.evMarketOnly, 2)}</span></div>
-        <div class="row total"><span>EV estimado = Σ p·r ${pDist.length === 2 ? `= ${num(o.pEst, 4)} × ${odd(o.price)} − 1` : ''}</span><span class="${cls(o.evTheoretical)}">${spct(o.evTheoretical, 2)}</span></div>
+        <div class="row total"><span>EV estimado = Σ p·r ${pDist.length === 2 ? `= ${num(o.pEst, 4)} × ${num(o.price, 3)} − 1` : ''}</span><span class="${cls(o.evTheoretical)}">${spct(o.evTheoretical, 2)}</span></div>
         <div class="row"><span>Intervalo (±1σ)</span><span>${spct(o.evConservative, 2)} … ${spct(o.evOptimistic, 2)}</span></div>
       </div>
       ${o.distNote ? `<p class="faint" style="font-size:.78rem">${esc(o.distNote)}</p>` : ''}
@@ -414,8 +414,8 @@ function openBetForm(o, kind) {
     <label class="f">Deporte<select name="sport">${Object.entries(SPORT_LABEL).map(([k, v]) => `<option value="${k}" ${o?.sport === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
     <label class="f">Mercado<input name="market" required value="${esc(o?.market || '')}"></label>
     <label class="f">Selección<input name="selection" required value="${esc(o?.selection || '')}"></label>
-    <label class="f">Casa de apuestas<input name="book" required value="${esc(o ? bookName(o.book) : 'Bet365')}"></label>
-    <label class="f">Cuota tomada<input name="odds" type="number" step="0.01" min="1.01" required value="${o ? o.price : ''}"></label>
+    <label class="f">Casa de apuestas<input name="book" required value="${esc(o ? bookName(o.book) : 'Betfair Exchange ES')}"></label>
+    <label class="f">Cuota neta tomada (tras comisión)<input name="odds" type="number" step="0.001" min="1.01" required value="${o ? +o.price.toFixed(3) : ''}"><span class="faint">${o?.commission ? `${odd(o.rawPrice)} con ${num(o.commission, 1)}% de comisión` : 'en exchanges: 1 + (cuota − 1)·(1 − comisión)'}</span></label>
     <label class="f">Stake real (€)<input name="stake" type="number" step="0.01" min="0.01" required value="${st?.stake || ''}"></label>
     <label class="f">Cuota de cierre (opcional)<input name="closingOdds" type="number" step="0.01"></label>
     <label class="f" style="grid-column:1/-1">Nota<input name="note"></label>
@@ -475,29 +475,28 @@ function vErrors() {
   const sc = scan();
   if (!sc) return dataBanner();
   const all = sc.anomalies || [];
-  const tabs = [['error', 'Posibles errores de cotización'], ['desactualizada', 'Cuotas no actualizadas'], ['diferencia', 'Diferencias Bet365 / Winamax'], ['arbitraje', 'Arbitrajes']];
+  const tabs = [['error', 'Posibles errores de cotización'], ['desactualizada', 'Cuotas no actualizadas'], ['diferencia', 'Diferencias Betfair / Matchbook'], ['arbitraje', 'Arbitrajes']];
   const list = all.filter((a) => a.category === S.errTab);
   const explain = {
-    error: 'Cuota de Bet365/Winamax muy superior a la media del mercado (≥ ' + settings().errorThresholdPct + '% y z ≥ 2,5). Puede ser un error de la casa: es habitual que se corrija o se anule la apuesta.',
+    error: 'Cuota de Betfair/Matchbook muy superior a la media del mercado (≥ ' + settings().errorThresholdPct + '% y z ≥ 2,5). Puede ser un error de la casa: es habitual que se corrija o se anule la apuesta.',
     desactualizada: 'La casa no ha cambiado su precio desde hace ≥ ' + settings().staleGapMinutes + ' min mientras el resto del mercado sí, y su cuota está ≥ 4% por encima de la media.',
-    diferencia: 'Diferencia ≥ ' + settings().diffThresholdPct + '% entre Bet365 y Winamax para la misma selección. Una diferencia NO implica valor: compárala con la cuota justa.',
+    diferencia: 'Diferencia ≥ ' + settings().diffThresholdPct + '% (cuotas netas de comisión) entre Betfair y Matchbook para la misma selección. Una diferencia NO implica valor: compárala con la cuota justa.',
     arbitraje: 'Combinación de mejores cuotas de distintas casas cuya suma de probabilidades implícitas es < 100%. Riesgos: cambios de cuota antes de completar todas las patas, límites y anulaciones.',
   };
   let table;
   if (S.errTab === 'arbitraje') {
     table = list.length ? `<div class="table-wrap"><table><thead><tr><th>Evento</th><th>Mercado</th><th class="n">Margen</th><th>Patas (reparto por 100 €)</th><th>Implica casa objetivo</th><th>Detectado</th><th>Verificación</th></tr></thead><tbody>
-      ${list.map((a) => `<tr><td>${esc(a.event)}<div class="faint">${when(a.commence)}</div></td><td>${esc(a.market)}</td><td class="n pos">${pct(a.margin, 2)}</td><td class="wrap">${a.legs.map((l) => `${esc(l.label)} @ <b>${odd(l.price)}</b> ${esc(bookName(l.book))} → ${eur(100 * l.share)}`).join('<br>')}</td><td>${a.involvesTarget ? 'sí' : 'no'}</td><td>${when(a.detectedAt, false)}</td><td><span class="badge b-amber">${esc(a.verification)}</span></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No se han detectado arbitrajes.</div>';
+      ${list.map((a) => `<tr><td>${esc(a.event)}<div class="faint">${when(a.commence)}</div></td><td>${esc(a.market)}</td><td class="n pos">${pct(a.margin, 2)}</td><td class="wrap">${a.legs.map((l) => `${esc(l.label)} @ <b>${odd(l.rawPrice ?? l.price)}</b> ${esc(bookName(l.book))} (neta ${odd(l.price)}) → ${eur(100 * l.share)}`).join('<br>')}</td><td>${a.involvesTarget ? 'sí' : 'no'}</td><td>${when(a.detectedAt, false)}</td><td><span class="badge b-amber">${esc(a.verification)}</span></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No se han detectado arbitrajes.</div>';
   } else {
-    table = list.length ? `<div class="table-wrap"><table><thead><tr><th>Evento</th><th>Mercado</th><th>Selección</th><th>Casa</th><th class="n">Bet365</th><th class="n">Winamax</th><th class="n">Mejor</th><th class="n">Media ref.</th><th class="n">Diferencia</th><th class="n">Prob. est.</th><th class="n">EV</th><th>Detectado</th><th>Cuota observada</th><th>Verificación</th></tr></thead><tbody>
+    table = list.length ? `<div class="table-wrap"><table><thead><tr><th>Evento</th><th>Mercado</th><th>Selección</th><th>Casa</th><th class="n">Betfair ES</th><th class="n">Matchbook</th><th class="n">Mejor</th><th class="n">Media ref.</th><th class="n">Diferencia</th><th class="n">Prob. est.</th><th class="n">EV</th><th>Detectado</th><th>Cuota observada</th><th>Verificación</th></tr></thead><tbody>
       ${list.map((a) => {
         const tp = a.targetPrices || {};
-        const wm = Object.entries(tp).filter(([k]) => isWinamax(k)).map(([, v]) => v);
         const best = Math.max(...Object.values(tp));
         const nonTarget = Object.entries(tp).filter(([k]) => !settings().targetBooks.includes(k)).map(([, v]) => v);
         const refMean = a.refMean ?? (nonTarget.length ? nonTarget.reduce((x, y) => x + y, 0) / nonTarget.length : null);
         const diff = a.diffPct;
         return `<tr><td>${esc(a.event)}<div class="faint">${when(a.commence)}</div></td><td>${esc(a.market)}</td><td>${esc(a.selection)}</td><td>${esc(bookName(a.book))}</td>
-        <td class="n">${tp.bet365 ? odd(tp.bet365) : '—'}</td><td class="n">${wm.length ? odd(Math.max(...wm)) : '—'}</td><td class="n">${odd(best)}</td><td class="n">${odd(refMean)}</td>
+        <td class="n">${tp.betfair_es ? odd(tp.betfair_es) : '—'}</td><td class="n">${tp.matchbook ? odd(tp.matchbook) : '—'}</td><td class="n">${odd(best)}</td><td class="n">${odd(refMean)}</td>
         <td class="n pos">${spct(diff)}</td><td class="n">${pct(a.pEst)}</td><td class="n ${cls(a.evTheoretical)}">${spct(a.evTheoretical)}</td>
         <td>${when(a.detectedAt, false)}</td><td>${ago(a.quoteUpdatedAt)}${a.gapMin ? `<div class="faint">sin cambios ${num(a.gapMin)} min</div>` : ''}</td><td><span class="badge ${a.seenCount > 1 ? 'b-blue' : 'b-amber'}">${esc(a.verification)}</span></td></tr>`;
       }).join('')}</tbody></table></div>` : '<div class="empty">No se han detectado casos en el último análisis.</div>';
@@ -667,45 +666,54 @@ function vStats() {
 // ---------------------------------------------------------------- Configuración
 function vConfig() {
   const s = settings(); const k = S.data.keys; const p = s.providers;
-  const allTargets = ['bet365', 'bet365_es', 'winamax_fr', 'winamax_es', 'winamax_de'];
+  const allTargets = ['betfair_es', 'matchbook'];
+  const ph = (x, label) => (x.configured ? `Configurado (${esc(x.hint)}, ${esc(x.source)})` : label);
   return `<div class="panel-head"><h2>Configuración</h2></div>
   <div class="grid g2">
-    <section class="panel"><h3>Claves API (se guardan sólo en el servidor local)</h3>
+    <section class="panel"><h3>Credenciales (se guardan sólo en el servidor local)</h3>
       <form id="keys-form" class="form" autocomplete="off">
-        <label class="f" style="grid-column:1/-1">The Odds API — Winamax FR/DE, Pinnacle, Betfair y ~25 casas
-          <input type="password" name="theoddsapi" placeholder="${k.theoddsapi.configured ? `Configurada (${esc(k.theoddsapi.hint)}, ${esc(k.theoddsapi.source)})` : 'Pega tu clave'}"></label>
-        <label class="f" style="grid-column:1/-1">OddsPapi — Bet365, Winamax FR/ES/DE y Pinnacle
-          <input type="password" name="oddspapi" placeholder="${k.oddspapi.configured ? `Configurada (${esc(k.oddspapi.hint)}, ${esc(k.oddspapi.source)})` : 'Pega tu clave'}"></label>
-        <div class="btn-row"><button class="b primary" type="submit">Guardar claves</button><button class="b danger" type="button" id="clear-keys">Borrar claves guardadas</button></div>
+        <h4 style="grid-column:1/-1;margin:0">Betfair Exchange España — API oficial</h4>
+        <label class="f" style="grid-column:1/-1">Application Key<input type="password" name="betfair_appkey" placeholder="${ph(k.betfair_appkey, 'Pega tu Application Key')}"></label>
+        <label class="f">Usuario betfair.es<input name="betfair_username" autocomplete="off" placeholder="${ph(k.betfair_username, 'Usuario')}"></label>
+        <label class="f">Contraseña<input type="password" name="betfair_password" autocomplete="new-password" placeholder="${ph(k.betfair_password, 'Contraseña')}"></label>
+        <h4 style="grid-column:1/-1;margin:6px 0 0">Matchbook — API oficial</h4>
+        <p class="muted" style="grid-column:1/-1;margin:0;font-size:.82rem">No necesita credenciales para leer precios.</p>
+        <h4 style="grid-column:1/-1;margin:6px 0 0">Casas de referencia (Pinnacle y ~25 casas)</h4>
+        <label class="f" style="grid-column:1/-1">Clave de The Odds API<input type="password" name="theoddsapi" placeholder="${ph(k.theoddsapi, 'Pega tu clave (gratuita)')}"></label>
+        <div class="btn-row"><button class="b primary" type="submit">Guardar</button><button class="b danger" type="button" id="clear-keys">Borrar credenciales guardadas</button></div>
       </form>
-      <p class="faint" style="font-size:.78rem">Las claves nunca se envían al navegador ni se incluyen en el código cliente: el servidor las guarda en <code>data/secrets.json</code> (permisos 600) o las lee de <code>THE_ODDS_API_KEY</code>/<code>ODDSPAPI_KEY</code>.</p>
-      <details><summary>¿Por qué estas fuentes?</summary>
+      <p class="faint" style="font-size:.78rem">Nunca se envían al navegador: el servidor las guarda en <code>data/secrets.json</code> (permisos 600) o las lee de <code>BETFAIR_APP_KEY</code>, <code>BETFAIR_USERNAME</code>, <code>BETFAIR_PASSWORD</code> y <code>THE_ODDS_API_KEY</code>.</p>
+      <details><summary>¿Por qué estas casas?</summary>
         <ul class="factors" style="font-size:.82rem">
-          <li><b>Bet365</b> y <b>Winamax</b> no ofrecen API pública. Extraer datos de sus webs vulneraría sus condiciones, así que se usan agregadores con licencia.</li>
-          <li><b>The Odds API</b> (the-odds-api.com): incluye winamax_fr y winamax_de en la región EU, además de Pinnacle y Betfair Exchange como referencias. No incluye Bet365 en Europa. Plan gratuito: 500 créditos/mes (1 crédito por región y mercado).</li>
-          <li><b>OddsPapi</b> (oddspapi.io): incluye bet365 y winamax (FR/ES/DE). Plan gratuito ≈ 250 peticiones/mes (1 por partido): para uso continuo hace falta un plan de pago.</li>
-          <li><b>football-data.co.uk</b>: resultados y xG gratuitos para el modelo de Poisson y el Elo (ligas domésticas europeas).</li>
+          <li><b>Betfair Exchange</b> y <b>Matchbook</b> son de las pocas casas con API oficial y pública para leer cuotas. Bet365, Winamax, Codere, etc. no la tienen. Pinnacle cerró su API al público en julio de 2025.</li>
+          <li><b>Betfair Exchange ES</b>: tiene licencia de la DGOJ. Inicio de sesión en <code>identitysso.betfair.es</code>; las consultas van a <code>api.betfair.com</code> y devuelven los mercados del Exchange español. La Application Key se crea desde tu cuenta: la versión «delayed» es gratuita, pero sus precios llegan retrasados.</li>
+          <li><b>Matchbook</b>: la lectura de precios es pública. Comprueba en sus condiciones si acepta clientes residentes en España.</li>
+          <li>Son <b>exchanges</b>: cobran comisión sobre la ganancia neta (configurable abajo) y cada precio tiene una liquidez limitada. El EV y el stake se calculan siempre con la cuota neta de comisión y nunca superan la liquidez disponible.</li>
+          <li><b>The Odds API</b> sólo se usa como referencia independiente (Pinnacle y otras casas). <b>football-data.co.uk</b> alimenta el modelo de Poisson y el Elo.</li>
         </ul></details>
     </section>
     <section class="panel"><h3>Proveedores y escaneo</h3>
       <form id="prov-form" class="form">
+        <label class="chk"><input type="checkbox" name="bf" ${p.betfair.enabled ? 'checked' : ''}>Betfair ES</label>
+        <label class="chk"><input type="checkbox" name="mb" ${p.matchbook.enabled ? 'checked' : ''}>Matchbook</label>
         <label class="chk"><input type="checkbox" name="toa" ${p.theoddsapi.enabled ? 'checked' : ''}>The Odds API</label>
-        <label class="chk"><input type="checkbox" name="op" ${p.oddspapi.enabled ? 'checked' : ''}>OddsPapi</label>
         <label class="chk"><input type="checkbox" name="fd" ${p.footballdata.enabled ? 'checked' : ''}>Modelo football-data</label>
-        <label class="chk"><input type="checkbox" name="tennis" ${p.theoddsapi.includeActiveTennis ? 'checked' : ''}>Tenis (torneos activos)</label>
+        <label class="chk"><input type="checkbox" name="tennis" ${p.theoddsapi.includeActiveTennis ? 'checked' : ''}>Tenis en referencias</label>
         <label class="f">Regiones The Odds API<input name="regions" value="${esc(p.theoddsapi.regions.join(','))}"></label>
         <label class="f">Mercados The Odds API<input name="markets" value="${esc(p.theoddsapi.markets.join(','))}"></label>
-        <label class="f">Máx. partidos OddsPapi/escaneo<input type="number" min="1" max="200" name="maxFixtures" value="${p.oddspapi.maxFixtures}"></label>
         <label class="f">Horizonte (horas)<input type="number" min="1" max="240" name="horizonHours" value="${s.horizonHours}"></label>
         <label class="f">Actualización (segundos)<input type="number" min="60" max="3600" name="refreshSeconds" value="${s.refreshSeconds}"></label>
-        <label class="f" style="grid-column:1/-1">Competiciones The Odds API (claves separadas por comas)<textarea name="sports" rows="3">${esc(p.theoddsapi.sports.join(', '))}</textarea></label>
+        <label class="f" style="grid-column:1/-1">Competiciones de referencia en The Odds API (claves separadas por comas)<textarea name="sports" rows="3">${esc(p.theoddsapi.sports.join(', '))}</textarea></label>
         <div class="btn-row"><button class="b primary" type="submit">Guardar</button></div>
       </form>
-      <p class="faint" style="font-size:.78rem">Coste aproximado por ciclo en The Odds API: competiciones activas × mercados × regiones = hasta ${p.theoddsapi.sports.length * p.theoddsapi.markets.length * p.theoddsapi.regions.length} créditos (más el tenis activo).</p>
+      <p class="faint" style="font-size:.78rem">Coste aproximado por ciclo en The Odds API: competiciones × mercados × regiones = hasta ${p.theoddsapi.sports.length * p.theoddsapi.markets.length * p.theoddsapi.regions.length} créditos. Betfair y Matchbook no tienen coste por consulta a este ritmo (Matchbook cobra 100 GBP por cada millón de consultas al mes).</p>
     </section>
     <section class="panel"><h3>Motor de detección</h3>
       <form id="engine-form" class="form">
         <div style="grid-column:1/-1" class="btn-row">${allTargets.map((t) => `<label class="chk"><input type="checkbox" name="t_${t}" ${s.targetBooks.includes(t) ? 'checked' : ''}>${bookName(t)}</label>`).join('')}</div>
+        <label class="f">Comisión Betfair ES (%)<input type="number" step="0.1" min="0" max="50" name="c_betfair_es" value="${s.commissions?.betfair_es ?? 5}"></label>
+        <label class="f">Comisión Matchbook (%)<input type="number" step="0.1" min="0" max="50" name="c_matchbook" value="${s.commissions?.matchbook ?? 4}"></label>
+        <label class="f">Liquidez mínima (€)<input type="number" step="1" min="0" name="minLiquidity" value="${s.minLiquidity}"></label>
         <label class="f">EV mínimo (%)<input type="number" step="0.5" name="minEV" value="${s.minEV * 100}"></label>
         <label class="f">Cuota obsoleta tras (min)<input type="number" name="staleMinutes" value="${s.staleMinutes}"></label>
         <label class="f">Casas de referencia mín.<input type="number" min="2" name="minRefBooks" value="${s.minRefBooks}"></label>
@@ -718,6 +726,7 @@ function vConfig() {
         <label class="f">Cuota máxima<input type="number" step="0.01" name="maxOdds" value="${s.maxOdds}"></label>
         <div class="btn-row"><button class="b primary" type="submit">Guardar</button></div>
       </form>
+      <p class="faint" style="font-size:.78rem">Comprueba la comisión real en tu cuenta: en Betfair varía según el mercado y el tipo de cuenta. Si la infravaloras, el EV calculado sale inflado.</p>
     </section>
     <section class="panel"><h3>Datos y registro de errores</h3>
       <div class="btn-row"><a class="b" href="/api/export" download="tipster-copia.json" style="text-decoration:none">Exportar copia (JSON)</a><label class="b" style="cursor:pointer">Importar copia<input type="file" id="import" accept="application/json" class="sr"></label><button class="b" id="clear-errors">Vaciar registro</button></div>
@@ -754,19 +763,19 @@ function bind(root) {
     await api('/api/settings', { method: 'PUT', body: { maxStakePct: +d.maxStakePct, maxExposurePct: +d.maxExposurePct, maxEventPct: +d.maxEventPct, strategy: d.strategy, kellyFraction: +d.kellyFraction, flatStakePct: +d.flatStakePct, minStake: +d.minStake } });
   });
   form('tx-form', (d) => api('/api/bankroll/tx', { method: 'POST', body: { type: d.type, amount: Number(d.amount), note: d.note } }));
-  form('keys-form', (d) => { const body = {}; if (d.theoddsapi) body.theoddsapi = d.theoddsapi; if (d.oddspapi) body.oddspapi = d.oddspapi; return api('/api/keys', { method: 'PUT', body }); });
-  const ck = $('#clear-keys', root); if (ck) ck.onclick = async () => { if (confirm('¿Borrar las claves guardadas en el servidor?')) { await api('/api/keys', { method: 'PUT', body: { theoddsapi: '', oddspapi: '' } }); await refresh(); } };
+  form('keys-form', (d) => { const body = {}; for (const f of ['theoddsapi', 'betfair_appkey', 'betfair_username', 'betfair_password']) if (d[f]) body[f] = d[f]; return api('/api/keys', { method: 'PUT', body }); });
+  const ck = $('#clear-keys', root); if (ck) ck.onclick = async () => { if (confirm('¿Borrar las claves guardadas en el servidor?')) { await api('/api/keys', { method: 'PUT', body: { theoddsapi: '', betfair_appkey: '', betfair_username: '', betfair_password: '' } }); await refresh(); } };
   form('prov-form', (d) => {
     const p = structuredClone(settings().providers);
-    p.theoddsapi.enabled = !!d.toa; p.oddspapi.enabled = !!d.op; p.footballdata.enabled = !!d.fd; p.theoddsapi.includeActiveTennis = !!d.tennis;
+    p.theoddsapi.enabled = !!d.toa; p.betfair.enabled = !!d.bf; p.matchbook.enabled = !!d.mb; p.footballdata.enabled = !!d.fd; p.theoddsapi.includeActiveTennis = !!d.tennis;
     p.theoddsapi.regions = d.regions.split(',').map((x) => x.trim()).filter(Boolean);
     p.theoddsapi.markets = d.markets.split(',').map((x) => x.trim()).filter(Boolean);
     p.theoddsapi.sports = d.sports.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
-    p.oddspapi.maxFixtures = Number(d.maxFixtures);
     return api('/api/settings', { method: 'PUT', body: { providers: p, horizonHours: +d.horizonHours, refreshSeconds: +d.refreshSeconds } });
   });
   form('engine-form', (d) => api('/api/settings', { method: 'PUT', body: {
     targetBooks: Object.keys(d).filter((k) => k.startsWith('t_')).map((k) => k.slice(2)),
+    commissions: { betfair_es: +d.c_betfair_es, matchbook: +d.c_matchbook }, minLiquidity: +d.minLiquidity,
     minEV: d.minEV / 100, staleMinutes: +d.staleMinutes, minRefBooks: +d.minRefBooks, devigMethod: d.devigMethod, modelWeight: +d.modelWeight,
     errorThresholdPct: +d.errorThresholdPct, diffThresholdPct: +d.diffThresholdPct, exceptionalEV: d.exceptionalEV / 100, minOdds: +d.minOdds, maxOdds: +d.maxOdds,
   } }));

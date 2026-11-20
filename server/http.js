@@ -6,17 +6,17 @@ export class ProviderError extends Error {
 
 export const redact = (url) => String(url).replace(/(apiKey|api_key|key)=[^&]+/gi, '$1=***');
 
-export async function getJSON(provider, url, { signal, timeoutMs = 20000, headers = {} } = {}) {
+export async function getJSON(provider, url, { signal, timeoutMs = 20000, headers = {}, method = 'GET', body: reqBody } = {}) {
   const ctrl = new AbortController();
   const onAbort = () => ctrl.abort(signal?.reason);
   signal?.addEventListener('abort', onAbort, { once: true });
   const timer = setTimeout(() => ctrl.abort(new Error('timeout')), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'Accept': 'application/json', 'Accept-Encoding': 'gzip', 'User-Agent': 'tipster-inteligente/1.0', ...headers } });
+    const res = await fetch(url, { method, body: reqBody, signal: ctrl.signal, headers: { 'Accept': 'application/json', 'Accept-Encoding': 'gzip', 'User-Agent': 'tipster-inteligente/1.0', ...headers } });
     const text = await res.text();
     let body; try { body = JSON.parse(text); } catch { body = text; }
     if (!res.ok) {
-      const msg = typeof body === 'object' ? (body.message || body.error?.message || JSON.stringify(body).slice(0, 200)) : String(body).slice(0, 200);
+      const msg = typeof body === 'object' ? (body.message || body.error?.message || body.detail?.APINGException?.errorCode || JSON.stringify(body).slice(0, 200)) : String(body).slice(0, 200);
       throw new ProviderError(provider, `HTTP ${res.status} en ${redact(url)}: ${msg}`, res.status, body);
     }
     return { body, headers: res.headers };

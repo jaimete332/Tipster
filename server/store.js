@@ -1,6 +1,6 @@
 // Persistencia local en JSON (carpeta data/, excluida de git).
 // - data/state.json   : configuración, bankroll, apuestas, historial de oportunidades, cuotas.
-// - data/secrets.json : claves API (permisos 600). Nunca se envían al navegador.
+// - data/secrets.json : claves y credenciales (permisos 600). Nunca se envían al navegador.
 // - data/cache/       : catálogos y resultados históricos descargados.
 
 import fs from 'node:fs';
@@ -25,7 +25,10 @@ export const DEFAULT_SETTINGS = {
   strategy: 'kelly', // kelly | flat
   flatStakePct: 1,
   // Motor
-  targetBooks: ['bet365', 'winamax_fr', 'winamax_es', 'winamax_de'],
+  targetBooks: ['betfair_es', 'matchbook'],
+  // Comisión sobre ganancias netas de cada exchange (%). Se descuenta de la cuota antes de calcular EV y stake.
+  commissions: { betfair_es: 5, matchbook: 4 },
+  minLiquidity: 10,
   minEV: 0.02,
   staleMinutes: 20,
   devigMethod: 'power',
@@ -51,7 +54,8 @@ export const DEFAULT_SETTINGS = {
       ],
       includeActiveTennis: true,
     },
-    oddspapi: { enabled: true, sports: [10, 11, 12], maxFixtures: 15, referenceBooks: ['pinnacle'] },
+    matchbook: { enabled: true, sports: [15, 4, 9], maxPages: 6, minLiquidity: 5 },
+    betfair: { enabled: true, eventTypes: [1, 7522, 2], maxMarketsPerType: 300, minLiquidity: 5 },
     footballdata: { enabled: true },
   },
 };
@@ -82,6 +86,9 @@ export function loadState() {
     const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
     state = deepMerge(DEFAULT_STATE(), raw);
     state.settings = deepMerge(structuredClone(DEFAULT_SETTINGS), raw.settings || {});
+    // Migración: las casas objetivo pasan a ser exchanges con API oficial (Betfair ES y Matchbook).
+    if (!state.settings.targetBooks.some((b) => b === 'betfair_es' || b === 'matchbook')) state.settings.targetBooks = [...DEFAULT_SETTINGS.targetBooks];
+    delete state.settings.providers.oddspapi;
   } catch { state = DEFAULT_STATE(); }
   return state;
 }
@@ -112,7 +119,7 @@ export function logError(source, message) {
 }
 
 // --- Secretos -----------------------------------------------------------------
-const ENV_KEYS = { theoddsapi: 'THE_ODDS_API_KEY', oddspapi: 'ODDSPAPI_KEY' };
+const ENV_KEYS = { theoddsapi: 'THE_ODDS_API_KEY', betfair_appkey: 'BETFAIR_APP_KEY', betfair_username: 'BETFAIR_USERNAME', betfair_password: 'BETFAIR_PASSWORD' };
 function readSecrets() { try { return JSON.parse(fs.readFileSync(SECRETS_FILE, 'utf8')); } catch { return {}; } }
 export function getKey(provider) { return process.env[ENV_KEYS[provider]] || readSecrets()[provider] || null; }
 export function setKey(provider, value) {
@@ -126,7 +133,7 @@ export function keyStatus() {
   const out = {};
   for (const p of Object.keys(ENV_KEYS)) {
     const k = getKey(p);
-    out[p] = { configured: !!k, source: process.env[ENV_KEYS[p]] ? 'variable de entorno' : k ? 'data/secrets.json' : null, hint: k ? `…${k.slice(-4)}` : null };
+    out[p] = { configured: !!k, source: process.env[ENV_KEYS[p]] ? 'variable de entorno' : k ? 'data/secrets.json' : null, hint: k ? (p === 'betfair_username' ? `${k.slice(0, 2)}…` : p === 'betfair_password' ? '••••' : `…${k.slice(-4)}`) : null };
   }
   return out;
 }

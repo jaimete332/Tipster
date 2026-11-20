@@ -18,17 +18,26 @@ export const LEAGUES = {
   soccer_france_ligue_one: 'F1', soccer_france_ligue_two: 'F2', soccer_netherlands_eredivisie: 'N1', soccer_portugal_primeira_liga: 'P1',
   soccer_belgium_first_div: 'B1', soccer_turkey_super_league: 'T1', soccer_greece_super_league: 'G1', soccer_spl: 'SC0',
 };
-// Nombres de torneo (OddsPapi u otros) → división, por coincidencia de texto.
-const NAME_RULES = [
-  [/laliga(?! 2)|la liga(?! 2)|primera division/i, /spain|espa/i, 'SP1'], [/laliga 2|segunda/i, /spain|espa/i, 'SP2'],
-  [/premier league/i, /england/i, 'E0'], [/championship/i, /england/i, 'E1'],
-  [/serie a/i, /italy|ital/i, 'I1'], [/bundesliga(?! 2)/i, /germany|aleman/i, 'D1'], [/ligue 1/i, /france|fran/i, 'F1'],
-  [/eredivisie/i, /./, 'N1'], [/primeira|liga portugal/i, /./, 'P1'],
-];
+// Nombres de competición de Matchbook ("Spain La Liga") y Betfair ("Spanish La Liga") → división.
+const NAMES = {
+  'spain la liga': 'SP1', 'spanish la liga': 'SP1', 'spain la liga 2': 'SP2', 'spanish segunda division': 'SP2',
+  'england premier league': 'E0', 'english premier league': 'E0', 'england championship': 'E1', 'english championship': 'E1',
+  'england league 1': 'E2', 'english league 1': 'E2', 'england league 2': 'E3', 'english league 2': 'E3', 'england national league': 'EC', 'english national league': 'EC',
+  'germany bundesliga': 'D1', 'german bundesliga': 'D1', 'germany 2.bundesliga': 'D2', 'german bundesliga 2': 'D2',
+  'italy serie a': 'I1', 'italian serie a': 'I1', 'italy serie b': 'I2', 'italian serie b': 'I2',
+  'france ligue 1': 'F1', 'french ligue 1': 'F1', 'france ligue 2': 'F2', 'french ligue 2': 'F2',
+  'netherlands eredivisie': 'N1', 'dutch eredivisie': 'N1', 'belgium first division a': 'B1', 'belgian first division a': 'B1',
+  'portugal primeira liga': 'P1', 'portuguese primeira liga': 'P1', 'turkey super lig': 'T1', 'turkish super league': 'T1',
+  'greece super league': 'G1', 'greek super league': 'G1',
+  'scotland premiership': 'SC0', 'scottish premiership': 'SC0', 'scotland championship': 'SC1', 'scottish championship': 'SC1',
+  'scotland league one': 'SC2', 'scottish league one': 'SC2', 'scotland league two': 'SC3', 'scottish league two': 'SC3',
+};
 
 export function divisionFor(event) {
   if (LEAGUES[event.competitionKey]) return LEAGUES[event.competitionKey];
-  for (const [re, cat, div] of NAME_RULES) if (re.test(event.competition || '') && cat.test(event.competition || '')) return div;
+  const n = String(event.competition || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (NAMES[n]) return NAMES[n];
+  if (/^la liga - spain$/.test(n)) return 'SP1';
   return null;
 }
 

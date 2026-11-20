@@ -77,6 +77,10 @@ export function allocate(opps, settings, bank, pendingBets = []) {
       stake = roundStake(Math.max(0, maxExposure - exposure));
       reasons.push(`Exposición simultánea máxima (${settings.maxExposurePct}%) alcanzada`);
     }
+    if (stake > 0 && o.liquidity != null && stake > o.liquidity) {
+      stake = roundStake(o.liquidity);
+      reasons.push(`Limitado a la liquidez disponible en el exchange (${o.liquidity.toFixed(0)} €)`);
+    }
     if (stake < (settings.minStake ?? 0)) {
       if (stake > 0) reasons.push(`Por debajo del stake mínimo (${settings.minStake} €)`);
       stake = 0;

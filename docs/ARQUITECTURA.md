@@ -1,16 +1,19 @@
 # Arquitectura y decisiones
 
-## 1. Qué fuentes se pueden integrar realmente (comprobado en noviembre de 2026)
+## 1. Casas con API pública (comprobado en noviembre de 2026)
 
-- **Bet365:** no tiene API pública, documentación para desarrolladores ni claves de autoservicio. Se accede a sus cuotas a través de agregadores:
-  - **OddsPapi** (`slug` `bet365`) ← integrado.
-  - Sports Game Odds, OpticOdds, LSports y Sportradar: alternativas de pago.
-- **Winamax:** tampoco tiene API pública. Opciones:
-  - **The Odds API**: `winamax_fr` y `winamax_de` en la región `eu` ← integrado.
-  - **OddsPapi**: `winamax-fr`, `winamax-es` y `winamax-de` ← integrado. Las claves exactas se descubren en tiempo de ejecución con `/v4/bookmakers`.
-- **Referencias independientes:** Pinnacle y Betfair Exchange, más unas 25 casas a través de The Odds API, y Pinnacle (con 30 s de retraso) a través de OddsPapi.
-- **Estadística:** football-data.co.uk (CSV de resultados, cuotas y xG, gratuito).
-- **Descartado:** el scraping de las webs de las casas, porque vulnera sus condiciones de servicio y sus controles de acceso.
+- **Bet365, Winamax:** no tienen API pública. Hace un tiempo se integraron a través del agregador OddsPapi; se han sustituido a petición del usuario.
+- **Pinnacle:** cerró su API al público el 23 de julio de 2025.
+- **Betfair Exchange (España):** tiene API-NG oficial ← **casa objetivo**.
+  - Login: `POST https://identitysso.betfair.es/api/login` con las cabeceras `X-Application` y `Content-Type: application/x-www-form-urlencoded`. Responde con `token` y `status`. La sesión dura 20 min.
+  - Consultas: `POST https://api.betfair.com/exchange/betting/rest/v1.0/{listMarketCatalogue|listMarketBook}/` con las cabeceras `X-Application` y `X-Authentication`. Con un token .es, se devuelven los mercados del Exchange español.
+  - Límite: `listMarketBook` con `EX_BEST_OFFERS` (peso 5) admite hasta 40 mercados por petición (200 puntos).
+- **Matchbook:** tiene API oficial ← **casa objetivo**.
+  - Consultas: `GET https://api.matchbook.com/edge/rest/events?include-prices=true…`, sin autenticación. Se ha comprobado con datos reales: 358 eventos y 6.428 mercados en un escaneo de 8 s.
+  - Límites y coste: 700 peticiones/min; 100 GBP por cada millón de consultas GET al mes.
+- **Smarkets:** tiene API, pero `api.smarkets.com` responde con un desafío de Cloudflare a las peticiones automatizadas. No se ha intentado sortearlo.
+- **Referencias independientes:** The Odds API (Pinnacle y unas 25 casas).
+- **Estadística:** football-data.co.uk.
 
 ## 2. Diseño
 
@@ -24,9 +27,9 @@ Navegador (public/)  ──HTTP──▶  Servidor local (server/index.js)
 
 - **Modelo normalizado de evento:** `{ sport, competition, home, away, commence, markets: { [key]: { type, line, sels, quotes: { [book]: { [sel]: { price, updatedAt, changedAt, provider } } } } } }`.
 - **Añadir un proveedor:** basta con crear `server/providers/x.js` con una función `fetchOdds({key, settings, signal, progress})` que devuelva eventos normalizados y registrarlo en `scanner.js`.
+- **Exchanges:** las cuotas se convierten a netas de comisión antes de calcular el EV, Kelly y los arbitrajes. Se descartan los precios con liquidez inferior a la mínima, y el stake se limita a la liquidez disponible.
 - **Fusión de eventos entre proveedores:** se fusionan si coinciden el deporte, la hora (±3 h) y el nombre de ambos equipos (Dice ≥ 0,7).
   - En tenis, si el orden de los jugadores está invertido, sólo se fusiona el mercado de ganador.
-  - Los hándicaps de OddsPapi y los totales de baloncesto o tenis no se mezclan con los de otro proveedor, porque la semántica (signo de la línea, prórroga) no está verificada. Se marcan como «semántica no confirmada» y nunca salen como verificados.
 - **Cancelación:** «DETENER» aborta la petición del navegador y llama a `/api/scan/stop`, que dispara el `AbortController` compartido por todas las consultas del ciclo.
 
 ## 3. Probabilidades
@@ -59,7 +62,7 @@ Navegador (public/)  ──HTTP──▶  Servidor local (server/index.js)
 La aplicación funciona de verdad, pero sólo mientras está abierta. Para tener alertas continuas:
 
 - **Servidor siempre encendido** (VPS o contenedor) que ejecute `runScan()` periódicamente, respetando la cuota de cada API.
-- **Planes de pago:** OddsPapi para bet365 a frecuencia útil; opcionalmente, un plan superior de The Odds API.
+- **Clave *live* de Betfair** para tener precios en tiempo real, y opcionalmente un plan superior de The Odds API para disponer de más referencias.
 - **Notificaciones** (correo, Telegram o push) cuando aparezca una oportunidad verificada.
 - **Base de datos** (SQLite o PostgreSQL) en lugar de `state.json`, si el historial crece mucho.
 - **Fuente de lesiones y alineaciones** con licencia (por ejemplo, API-Football o Sportmonks), para incorporarla como factor del modelo.

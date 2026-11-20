@@ -3,7 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeEvent } from '../server/providers/theOddsApi.js';
-import { normalizeOdds, mapMarket, canonicalBook } from '../server/providers/oddsPapi.js';
+import * as MB from '../server/providers/matchbook.js';
+import * as BF from '../server/providers/betfair.js';
 import { parseCSV, divisionFor } from '../server/providers/footballData.js';
 import { mergeEvents } from '../server/scanner.js';
 import { evaluateEvent } from '../shared/engine/value.js';
@@ -38,51 +39,60 @@ test('The Odds API: normaliza 1X2, hándicap asiático y totales', () => {
   assert.equal(ev.markets['totals:2.5'].quotes.betsson.under.price, 1.77);
 });
 
-const catalog = new Map([
-  ['101', { marketId: 101, marketType: '1x2', period: 'fulltime', handicap: 0, playerProp: false, outcomes: [{ outcomeId: 101, outcomeName: '1' }, { outcomeId: 102, outcomeName: 'X' }, { outcomeId: 103, outcomeName: '2' }] }],
-  ['104', { marketId: 104, marketType: 'bothteamsscore', period: 'fulltime', handicap: 0, playerProp: false, outcomes: [{ outcomeId: 104, outcomeName: 'Yes' }, { outcomeId: 105, outcomeName: 'No' }] }],
-  ['106', { marketId: 106, marketType: 'totals', period: 'fulltime', handicap: 2.5, playerProp: false, outcomes: [{ outcomeId: 106, outcomeName: 'Over' }, { outcomeId: 107, outcomeName: 'Under' }] }],
-  ['999', { marketId: 999, marketType: 'totals', period: '1sthalf', handicap: 1.5, playerProp: false, outcomes: [{ outcomeId: 1, outcomeName: 'Over' }, { outcomeId: 2, outcomeName: 'Under' }] }],
-]);
-const pl = (price) => ({ players: { 0: { active: true, price, changedAt: now, bookmakerChangedAt: now, limit: null } } });
-const opOdds = {
-  fixtureId: 'id1000', sportId: 10, tournamentName: 'LaLiga', categoryName: 'Spain', tournamentSlug: 'laliga', startTime: start,
-  participant1Name: 'Real Betis Sevilla', participant2Name: 'Athletic Club', sportName: 'Soccer',
-  bookmakerOdds: {
-    bet365: { bookmakerIsActive: true, markets: { 101: { outcomes: { 101: pl(2.7), 102: pl(3.2), 103: pl(2.9) } }, 106: { outcomes: { 106: pl(2.0), 107: pl(1.8) } }, 999: { outcomes: { 1: pl(1.5), 2: pl(2.5) } } } },
-    'winamax-es': { bookmakerIsActive: true, markets: { 101: { outcomes: { 101: pl(2.45), 102: pl(3.25), 103: pl(2.95) } } } },
-    'pinnacle+30': { bookmakerIsActive: true, markets: { 101: { outcomes: { 101: pl(2.46), 102: pl(3.3), 103: pl(3.04) } } } },
-  },
+// Forma real de la respuesta de Matchbook /edge/rest/events (comprobada contra la API pública).
+const mbPrice = (odds, side = 'back', amt = 100) => ({ 'available-amount': amt, currency: 'EUR', 'odds-type': 'DECIMAL', odds, 'decimal-odds': odds, side, 'exchange-type': 'back-lay' });
+const mbRunner = (name, handicap, prices) => ({ name, handicap, prices, status: 'open' });
+const mbEvent = {
+  id: 349, name: 'Real Betis vs Athletic Bilbao', 'sport-id': 15, start,
+  'meta-tags': [{ name: 'Soccer', type: 'SPORT' }, { name: 'Spain', type: 'COUNTRY' }, { name: 'Spanish La Liga', type: 'COMPETITION' }],
+  markets: [
+    { name: 'Match Odds', 'market-type': 'one_x_two', status: 'open', runners: [mbRunner('Real Betis', null, [mbPrice(2.7), mbPrice(2.76, 'lay')]), mbRunner('Athletic Bilbao', null, [mbPrice(3.0)]), mbRunner('Draw', null, [mbPrice(3.3)])] },
+    { name: 'Total', 'market-type': 'total', status: 'open', runners: [mbRunner('OVER 2.5', 2.5, [mbPrice(2.1)]), mbRunner('UNDER 2.5', 2.5, [mbPrice(1.8, 'back', 2)])] },
+    { name: '1st Half Total', 'market-type': 'total', status: 'open', runners: [mbRunner('OVER 1.5', 1.5, [mbPrice(3.7)]), mbRunner('UNDER 1.5', 1.5, [mbPrice(1.3)])] },
+    { name: 'Handicap', 'market-type': 'handicap', status: 'open', runners: [mbRunner('Real Betis (-0.0/0.5)', null, [mbPrice(2.0)]), mbRunner('Athletic Bilbao (+0.0/0.5)', null, [mbPrice(1.9)])] },
+    { name: 'Double Chance', 'market-type': 'other', status: 'open', runners: [mbRunner('Real Betis or Draw', null, [mbPrice(1.4)]), mbRunner('Real Betis or Athletic Bilbao', null, [mbPrice(1.3)]), mbRunner('Draw or Athletic Bilbao', null, [mbPrice(1.6)])] },
+  ],
 };
 
-test('OddsPapi: slugs canónicos, catálogo de mercados y periodo', () => {
-  assert.equal(canonicalBook('pinnacle+30'), 'pinnacle');
-  assert.equal(canonicalBook('winamax-es'), 'winamax_es');
-  assert.equal(canonicalBook('bet365'), 'bet365');
-  assert.equal(mapMarket(catalog.get('999'), 'football'), null, 'primera parte no se mezcla con partido completo');
-  const ev = normalizeOdds(opOdds, catalog);
-  assert.equal(ev.markets.h2h3.quotes.bet365.home.price, 2.7);
-  assert.equal(ev.markets.h2h3.quotes.pinnacle.away.price, 3.04);
-  assert.equal(ev.markets['totals:2.5'].quotes.bet365.over.price, 2.0);
-  assert.equal(Object.keys(ev.markets).length, 2);
+test('Matchbook: equipos, hándicap de cuarto, liquidez y exclusión de primera parte', () => {
+  assert.deepEqual(MB.parseTeams('Phoenix Suns at Utah Jazz'), { home: 'Utah Jazz', away: 'Phoenix Suns' });
+  assert.equal(MB.parseSplitLine('Deportivo Cali (+0.5/1.0)'), 0.75);
+  assert.equal(MB.parseSplitLine('Millonarios (-0.0/0.5)'), -0.25);
+  const ev = MB.normalizeEvent(mbEvent, 5);
+  assert.equal(ev.competition, 'Spanish La Liga');
+  assert.equal(ev.markets.h2h3.quotes.matchbook.home.price, 2.7, 'mejor precio back, no lay');
+  assert.equal(ev.markets['totals:2.5'].quotes.matchbook.under, undefined, 'sin liquidez mínima no se usa');
+  assert.ok(!ev.markets['totals:1.5'], 'la primera parte no se mezcla con el partido');
+  assert.equal(ev.markets['ah:-0.25'].quotes.matchbook.away.price, 1.9);
+  assert.equal(ev.markets.dc.quotes.matchbook['1X'].price, 1.4);
 });
 
-test('Fusión entre proveedores y detección de valor en bet365', () => {
+test('Betfair: catálogo + libro → mercados internos', () => {
+  assert.deepEqual(BF.parseTeams('Celtics @ Knicks'), { home: 'Knicks', away: 'Celtics' });
+  const cat = { marketId: '1.2', event: { id: '9', name: 'Real Betis v Athletic Bilbao', openDate: start }, runners: [{ selectionId: 1, runnerName: 'Real Betis' }, { selectionId: 2, runnerName: 'Athletic Bilbao' }, { selectionId: 3, runnerName: 'The Draw' }] };
+  const book = { marketId: '1.2', status: 'OPEN', inplay: false, runners: [{ selectionId: 1, status: 'ACTIVE', ex: { availableToBack: [{ price: 2.72, size: 300 }] } }, { selectionId: 2, status: 'ACTIVE', ex: { availableToBack: [{ price: 3.0, size: 2 }] } }, { selectionId: 3, status: 'ACTIVE', ex: { availableToBack: [{ price: 3.35, size: 80 }] } }] };
+  const m = BF.mapMarket(cat, book, 'MATCH_ODDS', 'football', 5, now);
+  assert.equal(m.def.key, 'h2h3');
+  assert.equal(m.quotes.home.price, 2.72);
+  assert.equal(m.quotes.away, undefined, 'liquidez insuficiente');
+  const ou = BF.mapMarket({ ...cat, runners: [{ selectionId: 4, runnerName: 'Under 2.5 Goals' }, { selectionId: 5, runnerName: 'Over 2.5 Goals' }] }, { runners: [{ selectionId: 4, status: 'ACTIVE', ex: { availableToBack: [{ price: 1.8, size: 50 }] } }, { selectionId: 5, status: 'ACTIVE', ex: { availableToBack: [{ price: 2.1, size: 50 }] } }] }, 'OVER_UNDER_25', 'football', 5, now);
+  assert.equal(ou.def.key, 'totals:2.5');
+  assert.equal(ou.quotes.over.price, 2.1);
+});
+
+test('Fusión entre proveedores y detección de valor en Matchbook (neta de comisión)', () => {
   const a = normalizeEvent(toaEvent, 'football');
-  const b = normalizeOdds(opOdds, catalog);
+  const b = MB.normalizeEvent(mbEvent, 5);
   const merged = mergeEvents([[a], [b]]);
   assert.equal(merged.length, 1, 'el mismo partido de dos proveedores debe fusionarse');
   const ev = merged[0];
-  assert.ok(ev.markets.h2h3.quotes.bet365 && ev.markets.h2h3.quotes.williamhill);
+  assert.ok(ev.markets.h2h3.quotes.matchbook && ev.markets.h2h3.quotes.williamhill);
   assert.equal(divisionFor(ev), 'SP1');
   const r = evaluateEvent(ev, { settings: {} });
-  const o = r.opportunities.find((x) => x.book === 'bet365' && x.sel === 'home' && x.marketKey === 'h2h3');
-  assert.ok(o, 'bet365 2.70 frente a justa ≈2.5 debería ser value');
-  assert.ok(o.evTheoretical > 0.05);
-  assert.ok(o.refBooks.every((x) => !x.book.startsWith('winamax') && x.book !== 'bet365'), 'las casas objetivo no son referencia');
-  // Línea de cuarto valorada con Poisson ajustado al mercado
-  assert.ok(r.marketModel && r.marketModel.home > 0);
-  assert.ok(r.anomalies.some((x) => x.category === 'diferencia'), 'diferencia bet365/winamax ≥ 5%');
+  const o = r.opportunities.find((x) => x.book === 'matchbook' && x.sel === 'home' && x.marketKey === 'h2h3');
+  assert.ok(o, 'Matchbook 2.70 (2.63 neta) frente a justa ≈2.48 debería ser value');
+  assert.ok(Math.abs(o.price - (1 + 1.7 * 0.96)) < 1e-9);
+  assert.ok(o.refBooks.every((x) => x.book !== 'matchbook'), 'la casa objetivo no es referencia de sí misma');
 });
 
 test('football-data: lectura del CSV', () => {

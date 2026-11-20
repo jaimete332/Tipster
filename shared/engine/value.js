@@ -5,11 +5,22 @@ import { devig, mean, median, stdev, sum, isValidPrice, expectedValue, expectedV
 import { scoreMatrix, matrix1X2, matrixBTTS, probOver, ahDist, totalDist, fitLambdas } from './poisson.js';
 import { marketLabel, selectionLabel, MARKET_GROUP } from './names.js';
 
-export const SHARP_BOOKS = new Set(['pinnacle', 'betfair_ex_eu', 'betfair_ex_uk', 'matchbook', 'smarkets', 'betfair']);
+export const SHARP_BOOKS = new Set(['pinnacle', 'betfair_es', 'betfair_ex_eu', 'betfair_ex_uk', 'matchbook', 'smarkets', 'betfair']);
+const EXCHANGES = /^(betfair|matchbook|smarkets)/;
+
+/** Familia de una casa: dos claves de la misma casa (p. ej. betfair_es y betfair_ex_eu) nunca se usan como referencia mutua. */
+export const bookFamily = (b) => (b.startsWith('betfair') ? 'betfair' : b.startsWith('matchbook') ? 'matchbook' : b.split('_')[0]);
+
+/** Comisión (%) sobre ganancias netas: configurada por casa o, para exchanges no configurados, 5 %. */
+export const commissionOf = (book, settings) => settings.commissions?.[book] ?? (EXCHANGES.test(book) ? 5 : 0);
+/** Cuota neta de comisión: 1 + (cuota − 1)·(1 − c). */
+export const netPrice = (price, book, settings) => 1 + (price - 1) * (1 - commissionOf(book, settings) / 100);
 export const PARTITION_TYPES = new Set(['h2h3', 'h2h', 'btts', 'dnb', 'totals', 'ah', 'spread']);
 
 export const DEFAULT_ENGINE_SETTINGS = {
-  targetBooks: ['bet365', 'winamax_fr', 'winamax_es', 'winamax_de'],
+  targetBooks: ['betfair_es', 'matchbook'],
+  commissions: { betfair_es: 5, matchbook: 4 },
+  minLiquidity: 10,
   minEV: 0.02,
   staleMinutes: 20,
   devigMethod: 'power',
@@ -117,7 +128,7 @@ export function evaluateEvent(event, ctx) {
   const settings = { ...DEFAULT_ENGINE_SETTINGS, ...ctx.settings };
   const targets = new Set(settings.targetBooks);
   const opportunities = [], anomalies = [], rows = [], issues = [];
-  const fitAll = marketFitModel(event, now, settings, targets);
+  const fitAll = marketFitModel(event, now, settings, new Set()); // sólo aporta la forma; el nivel se calibra con referencias independientes
   const stat = ctx.statModel || null;
   const h2h3 = Object.values(event.markets).find((m) => m.type === 'h2h3');
 
@@ -144,6 +155,7 @@ export function evaluateEvent(event, ctx) {
     for (const sel of market.sels) {
       const tq = [...targets].filter((t) => isValidPrice(market.quotes[t]?.[sel]?.price)).map((t) => ({ book: t, ...market.quotes[t][sel] }));
       if (tq.length >= 2) {
+        for (const x of tq) x.price = netPrice(x.price, x.book, settings); // comparación con cuotas netas de comisión
         const hi = tq.reduce((a, b) => (b.price > a.price ? b : a)), lo = tq.reduce((a, b) => (b.price < a.price ? b : a));
         const diff = hi.price / lo.price - 1;
         if (diff * 100 >= settings.diffThresholdPct && hi.book.slice(0, 4) !== lo.book.slice(0, 4)) {
@@ -155,7 +167,7 @@ export function evaluateEvent(event, ctx) {
     // --- Arbitraje entre casas -----------------------------------------------------
     if (PARTITION_TYPES.has(market.type) && market.type !== 'dc') {
       const legs = market.sels.map((sel) => {
-        const c = books.map((b) => ({ book: b, ...market.quotes[b][sel] })).filter((q) => isValidPrice(q.price) && ageMin(q.updatedAt, now) <= settings.staleMinutes && !q.book.includes('_ex_'));
+        const c = books.map((b) => ({ book: b, ...market.quotes[b][sel] })).filter((q) => isValidPrice(q.price) && ageMin(q.updatedAt, now) <= settings.staleMinutes).map((q) => ({ ...q, rawPrice: q.price, price: netPrice(q.price, q.book, settings) }));
         return c.reduce((a, q) => (!a || q.price > a.price ? q : a), null);
       });
       if (legs.every(Boolean) && new Set(legs.map((l) => l.book)).size > 1) {
@@ -177,7 +189,8 @@ export function evaluateEvent(event, ctx) {
     for (const T of targets) {
       const tq = market.quotes[T];
       if (!tq) continue;
-      const exclude = new Set(targets); // referencias independientes: nunca las casas objetivo
+      // Referencias independientes: nunca la propia casa (ni otras claves de la misma casa).
+      const exclude = new Set(Object.keys(market.quotes).concat(h2h3 ? Object.keys(h2h3.quotes) : []).filter((b) => bookFamily(b) === bookFamily(T)));
       let fair = null;
       if (PARTITION_TYPES.has(market.type)) fair = combineFair(perBookFair(market, now, settings, exclude), market.sels);
       // Mercados derivados del 1X2
@@ -187,7 +200,10 @@ export function evaluateEvent(event, ctx) {
       for (const sel of market.sels) {
         const q = tq[sel];
         if (!q || !isValidPrice(q.price)) continue;
-        const price = q.price;
+        const rawPrice = q.price;
+        const commission = commissionOf(T, settings);
+        const price = netPrice(rawPrice, T, settings); // EV y Kelly siempre con la cuota neta de comisión
+        if (price <= 1.0001) continue;
         const age = ageMin(q.updatedAt, now);
         const checks = [];
         const flags = [];
@@ -264,6 +280,7 @@ export function evaluateEvent(event, ctx) {
         // --- Comprobaciones de calidad ---
         checks.push({ name: 'Mercado y selección normalizados', ok: market.semanticsVerified !== false, detail: market.semanticsVerified === false ? 'Semántica del hándicap no confirmada en este proveedor' : 'Mismo mercado, línea y selección en todas las casas' });
         checks.push({ name: `Cuota reciente (≤ ${settings.staleMinutes} min)`, ok: age <= settings.staleMinutes, detail: Number.isFinite(age) ? `Antigüedad ${age.toFixed(1)} min` : 'Sin marca de tiempo' });
+        if (q.size != null) checks.push({ name: `Liquidez disponible (≥ ${settings.minLiquidity} €)`, ok: q.size >= settings.minLiquidity, detail: `${q.size.toFixed(0)} € al mejor precio` });
         checks.push({ name: `Referencias independientes (≥ ${settings.minRefBooks})`, ok: n >= settings.minRefBooks, detail: `${n} casas de referencia` });
         checks.push({ name: 'Referencia sharp (Pinnacle / exchange)', ok: sharpN > 0, detail: sharpN ? `${sharpN} referencia(s) sharp` : 'Sin referencia sharp' });
         checks.push({ name: 'Dispersión entre casas baja', ok: sd < 0.03, detail: `σ = ${(sd * 100).toFixed(2)} p.p.` });
@@ -278,30 +295,30 @@ export function evaluateEvent(event, ctx) {
         if (pModel != null && disagreement >= 0.08 && confidence === 'alta') confidence = 'media';
 
         // --- Posibles errores de cuota y cuotas no actualizadas ---
-        const others = Object.entries(market.quotes).filter(([b]) => !targets.has(b)).map(([b, qq]) => ({ book: b, ...qq[sel] })).filter((x) => isValidPrice(x.price) && ageMin(x.updatedAt, now) <= settings.staleMinutes);
+        const others = Object.entries(market.quotes).filter(([b]) => bookFamily(b) !== bookFamily(T)).map(([b, qq]) => ({ book: b, ...qq[sel] })).filter((x) => isValidPrice(x.price) && ageMin(x.updatedAt, now) <= settings.staleMinutes);
         if (others.length >= 2) {
           const ps = others.map((x) => x.price);
           const refMean = mean(ps), sdP = stdev(ps);
-          const diffPct = price / refMean - 1;
-          const z = sdP > 0 ? (price - refMean) / sdP : Infinity;
+          const diffPct = rawPrice / refMean - 1;
+          const z = sdP > 0 ? (rawPrice - refMean) / sdP : Infinity;
           // Se usa la hora del último cambio de precio cuando el proveedor la ofrece.
           const tsOf = (x) => new Date(x.changedAt || x.updatedAt).getTime();
           const newest = Math.max(...others.map(tsOf));
           const gapMin = (newest - tsOf(q)) / 60000;
           const extra = { diffPct, refMean, z, refN: others.length, pEst, evTheoretical, bestOther: others.reduce((a, b) => (b.price > a.price ? b : a)) };
           if (diffPct * 100 >= settings.errorThresholdPct && others.length >= 3 && z >= 2.5) {
-            anomalies.push(baseAnomaly('error', event, market, sel, { book: T, price, updatedAt: q.updatedAt }, extra));
+            anomalies.push(baseAnomaly('error', event, market, sel, { book: T, price: rawPrice, updatedAt: q.updatedAt }, extra));
             flags.push('posible_error');
           } else if (gapMin >= settings.staleGapMinutes && diffPct >= 0.04) {
-            anomalies.push(baseAnomaly('desactualizada', event, market, sel, { book: T, price, updatedAt: q.updatedAt }, { ...extra, gapMin }));
+            anomalies.push(baseAnomaly('desactualizada', event, market, sel, { book: T, price: rawPrice, updatedAt: q.updatedAt }, { ...extra, gapMin }));
             flags.push('cuota_no_actualizada');
           }
         }
 
         // --- Filtro de calidad mínimo ---
         const evClass = classifyEV(evTheoretical);
-        const critical = ['Mercado y selección normalizados', `Cuota reciente (≤ ${settings.staleMinutes} min)`];
-        const passesMin = evTheoretical >= settings.minEV && n >= 2 && critical.every((c) => checks.find((x) => x.name === c)?.ok) && price >= settings.minOdds && price <= settings.maxOdds;
+        const critical = ['Mercado y selección normalizados', `Cuota reciente (≤ ${settings.staleMinutes} min)`, `Liquidez disponible (≥ ${settings.minLiquidity} €)`];
+        const passesMin = evTheoretical >= settings.minEV && n >= 2 && critical.every((c) => checks.find((x) => x.name === c)?.ok ?? true) && rawPrice >= settings.minOdds && rawPrice <= settings.maxOdds;
         if (!passesMin) continue;
         const verified = checks.every((c) => c.ok) && confidence !== 'baja';
 
@@ -317,9 +334,9 @@ export function evaluateEvent(event, ctx) {
           marketKey, marketType: market.type, marketGroup: MARKET_GROUP[market.type], line: market.line,
           market: marketLabel(market.type, market.line, event.sport),
           sel, selection: selectionLabel(sel, event, market.type, market.line),
-          book: T, price, quoteUpdatedAt: q.updatedAt, quoteAgeMin: age, provider: q.provider,
+          book: T, price, rawPrice, commission, liquidity: q.size ?? null, quoteUpdatedAt: q.updatedAt, quoteAgeMin: age, provider: q.provider,
           refOdds: 1 / pEst, refMeanOdds: refMeanAll, bestOther: allPrices.filter((x) => x.book !== T).reduce((a, b) => (!a || b.price > a.price ? b : a), null),
-          pMarket, pModel, pEst, pLow, pHigh, se, pImplied: 1 / price,
+          pMarket, pModel, pEst, pLow, pHigh, se, pImplied: 1 / rawPrice,
           evTheoretical, evConservative, evOptimistic, evMarketOnly,
           evClass: evClass.key, evClassLabel: evClass.label,
           confidence, verified, verification: verified ? 'verificada' : 'pendiente',

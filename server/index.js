@@ -60,6 +60,9 @@ function sanitizeSettings(inc, cur) {
   s.minRefBooks = clamp(Math.round(num(s.minRefBooks, 3)), 2, 20);
   s.modelWeight = clamp(num(s.modelWeight, 0.2), 0, 0.5);
   if (!Array.isArray(s.targetBooks) || !s.targetBooks.length) s.targetBooks = DEFAULT_SETTINGS.targetBooks;
+  s.commissions = { ...cur.commissions, ...(inc.commissions || {}) };
+  for (const k of Object.keys(s.commissions)) s.commissions[k] = clamp(num(s.commissions[k], 5), 0, 50);
+  s.minLiquidity = clamp(num(s.minLiquidity, 10), 0, 100000);
   return s;
 }
 
@@ -128,7 +131,7 @@ const routes = {
   },
   'PUT /api/keys': async (req) => {
     const b = await readBody(req);
-    for (const p of ['theoddsapi', 'oddspapi']) if (b[p] !== undefined) setKey(p, b[p]);
+    for (const p of ['theoddsapi', 'betfair_appkey', 'betfair_username', 'betfair_password']) if (b[p] !== undefined) setKey(p, b[p]);
     return { ok: true, keys: keyStatus() };
   },
   'GET /api/export': () => { const s = loadState(); const { oddsHistory, ...rest } = s; return rest; },

@@ -128,11 +128,11 @@ test('Asignación de cartera: límites por evento y exposición total', () => {
 // --- Evaluación de un evento sintético --------------------------------------------
 function quote(price, minsAgo = 1) { return { price, updatedAt: new Date(Date.now() - minsAgo * 60000).toISOString(), provider: 'test' }; }
 function synthEvent(targetHomePrice) {
-  const books = { pinnacle: [2.0, 3.6, 4.0], williamhill: [1.95, 3.5, 3.9], betfair_ex_eu: [2.04, 3.7, 4.1], unibet_fr: [1.93, 3.5, 3.8], betsson: [1.96, 3.45, 3.85] };
+  const books = { pinnacle: [2.0, 3.6, 4.0], williamhill: [1.95, 3.5, 3.9], smarkets: [2.04, 3.7, 4.1], unibet_fr: [1.93, 3.5, 3.8], betsson: [1.96, 3.45, 3.85] };
   const quotes = {};
   for (const [b, [h, d, a]] of Object.entries(books)) quotes[b] = { home: quote(h), draw: quote(d), away: quote(a) };
-  quotes.bet365 = { home: quote(targetHomePrice), draw: quote(3.4), away: quote(3.7) };
-  quotes.winamax_fr = { home: quote(1.97), draw: quote(3.5), away: quote(3.75) };
+  quotes.betfair_es = { home: { ...quote(targetHomePrice), size: 200 }, draw: { ...quote(3.4), size: 200 }, away: { ...quote(3.7), size: 200 } };
+  quotes.matchbook = { home: { ...quote(1.97), size: 200 }, draw: { ...quote(3.5), size: 200 }, away: { ...quote(3.75), size: 200 } };
   return {
     id: 'football|2026-11-21|a|b', sport: 'football', competition: 'Test League', home: 'Equipo A', away: 'Equipo B', commence: new Date(Date.now() + 86400000).toISOString(),
     markets: { h2h3: { key: 'h2h3', type: 'h2h3', line: null, sels: ['home', 'draw', 'away'], quotes } },
@@ -140,33 +140,44 @@ function synthEvent(targetHomePrice) {
 }
 
 test('Detecta value bet cuando la cuota objetivo supera claramente la referencia sin margen', () => {
-  const { opportunities } = evaluateEvent(synthEvent(2.25), { settings: {} });
-  const o = opportunities.find((x) => x.book === 'bet365' && x.sel === 'home');
+  const { opportunities } = evaluateEvent(synthEvent(2.32), { settings: {} });
+  const o = opportunities.find((x) => x.book === 'betfair_es' && x.sel === 'home');
+  assert.ok(Math.abs(o.price - (1 + 1.32 * 0.95)) < 1e-9, 'EV calculado con cuota neta de comisión (5 %)');
   assert.ok(o, 'debería detectarse');
   assert.ok(o.evTheoretical > 0.05 && o.evTheoretical < 0.2);
   assert.ok(o.pEst > 0.45 && o.pEst < 0.52);
-  assert.equal(o.sharpN, 2);
+  assert.equal(o.sharpN, 3, 'pinnacle, smarkets y matchbook (otro exchange) son referencia');
   assert.ok(o.evConservative < o.evTheoretical);
 });
 
 test('No muestra apuestas sin valor', () => {
-  const { opportunities } = evaluateEvent(synthEvent(1.95), { settings: {} });
-  assert.equal(opportunities.filter((x) => x.sel === 'home' && x.book === 'bet365').length, 0);
+  const { opportunities } = evaluateEvent(synthEvent(2.05), { settings: {} });
+  assert.equal(opportunities.filter((x) => x.sel === 'home' && x.book === 'betfair_es').length, 0, '2.05 bruta ≈ 2.00 neta: sin valor');
 });
 
 test('Marca posible error de cuota y no lo da por verificado', () => {
   const { opportunities, anomalies } = evaluateEvent(synthEvent(2.8), { settings: {} });
-  assert.ok(anomalies.some((a) => a.category === 'error' && a.book === 'bet365'));
-  const o = opportunities.find((x) => x.book === 'bet365' && x.sel === 'home');
+  assert.ok(anomalies.some((a) => a.category === 'error' && a.book === 'betfair_es'));
+  const o = opportunities.find((x) => x.book === 'betfair_es' && x.sel === 'home');
   assert.equal(o.exceptional, true);
   assert.equal(o.verified, false);
 });
 
 test('Excluye cuotas obsoletas', () => {
-  const ev = synthEvent(2.25);
-  ev.markets.h2h3.quotes.bet365.home = quote(2.25, 120);
+  const ev = synthEvent(2.32);
+  ev.markets.h2h3.quotes.betfair_es.home = { ...quote(2.32, 120), size: 200 };
   const { opportunities } = evaluateEvent(ev, { settings: {} });
-  assert.equal(opportunities.filter((x) => x.book === 'bet365' && x.sel === 'home').length, 0);
+  assert.equal(opportunities.filter((x) => x.book === 'betfair_es' && x.sel === 'home').length, 0);
+});
+
+test('Excluye precios sin liquidez suficiente y limita el stake a la liquidez', () => {
+  const ev = synthEvent(2.32);
+  ev.markets.h2h3.quotes.betfair_es.home.size = 4;
+  assert.equal(evaluateEvent(ev, { settings: {} }).opportunities.filter((x) => x.book === 'betfair_es' && x.sel === 'home').length, 0);
+  ev.markets.h2h3.quotes.betfair_es.home.size = 12;
+  const o = evaluateEvent(ev, { settings: {} }).opportunities.find((x) => x.book === 'betfair_es' && x.sel === 'home');
+  const st = allocate([o], { kellyFraction: 1, maxStakePct: 10, maxExposurePct: 10, maxEventPct: 10 }, { total: 10000, available: 10000 }, []).get(o.id);
+  assert.equal(st.stake, 12);
 });
 
 test('Línea de cuarto: a la cuota justa del mercado el EV es ≈ 0 (Poisson sólo aporta la forma)', () => {
@@ -176,10 +187,10 @@ test('Línea de cuarto: a la cuota justa del mercado el EV es ≈ 0 (Poisson só
   for (const [b, [h, d, a, ahh, aha]] of Object.entries(books)) { h2h[b] = { home: q(h), draw: q(d), away: q(a) }; ah[b] = { home: q(ahh), away: q(aha) }; }
   const ev = { id: 'x', sport: 'football', competition: 'T', home: 'A', away: 'B', commence: new Date(Date.now() + 864e5).toISOString(), markets: {
     h2h3: { key: 'h2h3', type: 'h2h3', line: null, sels: ['home', 'draw', 'away'], quotes: h2h },
-    'ah:-0.25': { key: 'ah:-0.25', type: 'ah', line: -0.25, sels: ['home', 'away'], quotes: { ...ah, bet365: { home: q(1.75), away: q(2.2) } } } } };
+    'ah:-0.25': { key: 'ah:-0.25', type: 'ah', line: -0.25, sels: ['home', 'away'], quotes: { ...ah, matchbook: { home: { ...q(1.78), size: 100 }, away: { ...q(2.2), size: 100 } } } } } };
   const r = evaluateEvent(ev, { settings: {} });
   const o = r.opportunities.find((x) => x.marketKey === 'ah:-0.25' && x.sel === 'home');
-  assert.ok(o, '1.75 frente a justa ≈1.64 debe detectarse');
+  assert.ok(o, '1.78 (1.75 neta de 4 %) frente a justa ≈1.64 debe detectarse');
   assert.ok(o.evTheoretical > 0.02 && o.evTheoretical < 0.1, `EV ${o.evTheoretical}`);
   assert.ok(o.dist.some((d) => d.r === -0.5), 'incluye media pérdida');
 });

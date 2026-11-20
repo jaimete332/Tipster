@@ -16,7 +16,8 @@ export const TEAM_ALIASES = {
   'bayer leverkusen': 'leverkusen', 'eintracht frankfurt': 'ein frankfurt', 'rb leipzig': 'rb leipzig', '1 koln': 'fc koln', 'koln': 'fc koln',
   'fc st pauli': 'st pauli', 'mainz': 'mainz', 'hoffenheim': 'hoffenheim', 'werder bremen': 'werder bremen', 'union berlin': 'union berlin',
   'paris saint germain': 'paris sg', 'psg': 'paris sg', 'olympique marseille': 'marseille', 'olympique lyonnais': 'lyon', 'as monaco': 'monaco',
-  'saint etienne': 'st etienne', 'stade rennais': 'rennes', 'rc lens': 'lens', 'stade brestois': 'brest',
+  'queens park rangers': 'qpr', 'raith rovers': 'raith rvs', 'airdrieonians': 'airdrie utd', 'sheffield wednesday': 'sheffield weds', 'west bromwich albion': 'west brom',
+  'peterborough united': 'peterboro', 'inverness caledonian thistle': 'inverness c', 'saint etienne': 'st etienne', 'stade rennais': 'rennes', 'rc lens': 'lens', 'stade brestois': 'brest',
 };
 
 export function normalizeName(s) {
