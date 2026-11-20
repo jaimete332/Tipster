@@ -1,0 +1,12 @@
+{
+  "name": "tipster-inteligente-pro",
+  "version": "1.0.0",
+  "description": "Value Bet Finder & Bankroll Manager: detección de apuestas de valor, errores de cuota y gestión del bankroll con Kelly fraccionado.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test test/*.test.js"
+  }
+}
