@@ -349,7 +349,8 @@
   const BLUFF_3BET = new Set(['A5s', 'A4s', 'A3s', 'A2s', 'K9s', 'QTs', 'J9s', 'T9s', '98s', '87s', '76s', '65s']);
   const r05 = (x) => Math.max(0.5, Math.round(x * 2) / 2);
   const pct = (x) => Math.round(x * 100) + '%';
-  const bb = (x) => { const v = Math.round(x * 10) / 10; return v.toLocaleString('es-ES') + (v === 1 ? ' ciega' : ' ciegas'); };
+  let FMT = null; // formateador opcional (p. ej. convertir ciegas en fichas reales)
+  const bb = (x) => { if (FMT) return FMT(x); const v = Math.round(x * 10) / 10; return v.toLocaleString('es-ES') + (v === 1 ? ' ciega' : ' ciegas'); };
   const POS_ES = {
     UTG: 'eres de los primeros en hablar', 'UTG+1': 'eres de los primeros en hablar', 'UTG+2': 'eres de los primeros en hablar',
     MP: 'estás en el medio de la mesa', HJ: 'estás en el medio de la mesa', CO: 'estás justo antes del botón',
@@ -379,6 +380,7 @@
   }
 
   function decide(ctx) {
+    FMT = ctx.fmt || null;
     return ctx.board.length < 3 ? decidePreflop(ctx) : decidePostflop(ctx);
   }
 
@@ -444,7 +446,7 @@
 
     const heroIn = posted(pos, players);
     if (preAction === 'raise') {
-      const Rsz = toCall + heroIn;
+      const Rsz = ctx.facing || (toCall + heroIn);
       if (S <= 18) {
         const rejam = Math.min(0.35, 0.13 * (12 / S));
         R(`Te quedan pocas fichas (${bb(S)}): o vas con todo o te retiras. Se va con todo con el ${pct(rejam)} de mejores manos.`);
@@ -475,7 +477,7 @@
     }
 
     if (preAction === '3bet') {
-      const v3 = toCall + 2.5;
+      const v3 = ctx.facing || (toCall + 2.5);
       R(`Te han vuelto a subir. Contra las manos con las que se hace eso, ganarías el ${pct(eq)} de las veces.`);
       if (p <= 0.026) {
         const to = r05(v3 * 2.25);

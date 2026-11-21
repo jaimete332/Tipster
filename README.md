@@ -1,6 +1,6 @@
 # Tipster
 
-**Tipster Hold'em**: asesor de Texas Hold'em en el navegador. Marcas tus cartas, el board y lo que hacen los rivales, y te recomienda la jugada (retirarte, pasar, pagar, apostar, subir o all-in) con el tamaño de apuesta.
+**Tipster Hold'em**: mesa de Texas Hold'em en el navegador con asesor. Pones quién es el dealer y lo que apuesta cada jugador; la mesa pone las ciegas, lleva el bote, forma los botes aparte cuando alguien va con todo y actualiza las fichas de todos al final de cada mano. Cuando te toca, te recomienda la jugada y la cantidad.
 
 Abre `index.html` en el navegador (no necesita servidor ni instalación).
 
@@ -12,7 +12,7 @@ Abre `index.html` en el navegador (no necesita servidor ni instalación).
 - **Preflop**: rangos de apertura por posición, 3-bet de valor y de farol, defensa por pot odds y equity realizada, set-mining y push/fold con 15 bb o menos.
 - **Postflop**: apuesta de valor con tamaño según textura del board, semifaroles con proyectos, c-bets, control del bote, pot odds, implied odds y SPR.
 
-Todos los importes van en ciegas grandes (bb).
+Las cantidades se muestran en fichas reales; por dentro el motor trabaja en ciegas grandes. La mesa se guarda en el navegador y se puede deshacer cualquier paso.
 
 ## Archivos
 
