@@ -1,5 +1,5 @@
 // Ejecuta un análisis completo y guarda un resumen compacto en JSON para el artefacto «Tipster».
-// Uso: NODE_USE_ENV_PROXY=1 THE_ODDS_API_KEY=... node scripts/export-scan.mjs salida.json
+// Uso: NODE_USE_ENV_PROXY=1 THE_ODDS_API_KEY=... node scripts/export-scan.mjs salida.json [historial.json]
 // Las claves nunca se escriben en el JSON.
 
 import fs from 'node:fs';
@@ -54,5 +54,13 @@ const payload = {
   events,
 };
 fs.writeFileSync(out, JSON.stringify(payload));
+
+// Historial: sólo las apuestas recomendadas (mismos criterios que la pestaña «Apuestas recomendadas»).
+const isRec = (o) => o.verified && o.confidence !== 'baja' && o.evConservative > 0 && !o.exceptional;
+const histOut = process.argv[3];
+if (histOut) {
+  const recommended = payload.opportunities.filter(isRec).map((o) => ({ event: o.event, commence: o.commence, market: o.market, selection: o.selection, book: o.book, rawPrice: o.rawPrice, price: o.price, evTheoretical: o.evTheoretical, evConservative: o.evConservative, confidence: o.confidence }));
+  fs.writeFileSync(histOut, JSON.stringify({ at: payload.at, eventsAnalyzed: payload.eventsAnalyzed, candidates: payload.opportunities.length, recommended }));
+}
 console.log(`OK ${out}: ${payload.eventsAnalyzed} eventos, ${payload.opportunities.length} oportunidades, ${payload.anomalies.length} anomalías, ${(fs.statSync(out).size / 1024).toFixed(1)} KiB`);
 process.exit(0);
