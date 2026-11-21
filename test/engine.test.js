@@ -194,3 +194,12 @@ test('Línea de cuarto: a la cuota justa del mercado el EV es ≈ 0 (Poisson só
   assert.ok(o.evTheoretical > 0.02 && o.evTheoretical < 0.1, `EV ${o.evTheoretical}`);
   assert.ok(o.dist.some((d) => d.r === -0.5), 'incluye media pérdida');
 });
+
+test('El modelo estadístico no puede crear valor que el mercado no ve', () => {
+  const ev = synthEvent(2.02); // ≈ cuota justa de mercado → EV de mercado ≈ 0
+  const strong = { matrix: null, quality: 'ok', source: 'test' };
+  // Matriz que da al local un 70 %: muy por encima del mercado (~50 %)
+  strong.matrix = Array.from({ length: 11 }, (_, x) => Array.from({ length: 11 }, (_, y) => (x === 2 && y === 0 ? 0.7 : x === 1 && y === 1 ? 0.15 : x === 0 && y === 1 ? 0.15 : 0)));
+  const r = evaluateEvent(ev, { settings: {}, statModel: strong });
+  assert.equal(r.opportunities.filter((o) => o.sel === 'home').length, 0);
+});

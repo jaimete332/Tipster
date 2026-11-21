@@ -176,7 +176,7 @@ export function evaluateEvent(event, ctx) {
           anomalies.push({
             id: `arb|${event.id}|${marketKey}`, category: 'arbitraje', eventId: event.id, event: `${event.home} vs ${event.away}`, sport: event.sport, competition: event.competition, commence: event.commence,
             marketKey, market: marketLabel(market.type, market.line, event.sport), margin: 1 - inv,
-            legs: legs.map((l, i) => ({ sel: market.sels[i], label: selectionLabel(market.sels[i], event, market.type, market.line), book: l.book, price: l.price, updatedAt: l.updatedAt, share: (1 / l.price) / inv })),
+            legs: legs.map((l, i) => ({ sel: market.sels[i], label: selectionLabel(market.sels[i], event, market.type, market.line), book: l.book, price: l.price, rawPrice: l.rawPrice, updatedAt: l.updatedAt, share: (1 / l.price) / inv })),
             involvesTarget: legs.some((l) => targets.has(l.book)), detectedAt: new Date(now).toISOString(),
             verification: 'pendiente',
             note: 'Arbitraje teórico: requiere colocar todas las patas a la vez; las casas pueden limitar o anular. No equivale a una apuesta de valor.',
@@ -262,7 +262,8 @@ export function evaluateEvent(event, ctx) {
           pModel = poissonSelProb(stat.matrix, market.type, market.line, sel);
           if (pModel != null) modelInfo = { p: pModel, source: stat.source, details: stat.details, quality: stat.quality };
         }
-        const w = pModel != null && stat.quality === 'ok' ? settings.modelWeight : 0;
+        // El modelo sólo se mezcla si es coherente con el mercado (discrepancia < 6 p.p.); si no, se ignora y se avisa.
+        const w = pModel != null && stat.quality === 'ok' && Math.abs(pModel - pMarket) < 0.06 ? settings.modelWeight : 0;
         const pEst = (1 - w) * pMarket + w * (pModel ?? pMarket);
 
         // --- Incertidumbre ---
@@ -318,7 +319,8 @@ export function evaluateEvent(event, ctx) {
         // --- Filtro de calidad mínimo ---
         const evClass = classifyEV(evTheoretical);
         const critical = ['Mercado y selección normalizados', `Cuota reciente (≤ ${settings.staleMinutes} min)`, `Liquidez disponible (≥ ${settings.minLiquidity} €)`];
-        const passesMin = evTheoretical >= settings.minEV && n >= 2 && critical.every((c) => checks.find((x) => x.name === c)?.ok ?? true) && rawPrice >= settings.minOdds && rawPrice <= settings.maxOdds;
+        // El valor debe existir según el MERCADO sin margen: el modelo puede confirmarlo o reducirlo, nunca crearlo.
+        const passesMin = evTheoretical >= settings.minEV && evMarketOnly >= settings.minEV && n >= 2 && critical.every((c) => checks.find((x) => x.name === c)?.ok ?? true) && rawPrice >= settings.minOdds && rawPrice <= settings.maxOdds;
         if (!passesMin) continue;
         const verified = checks.every((c) => c.ok) && confidence !== 'baja';
 

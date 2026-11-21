@@ -17,8 +17,11 @@ function quotaFrom(headers) {
   return r == null ? null : { remaining: Number(r), used: Number(u), last: Number(l), at: new Date().toISOString() };
 }
 
+// La clave se envía en la cabecera x-api-key (admitida por la API v4): no queda en URLs ni en registros.
+const auth = (key) => ({ 'x-api-key': key });
+
 export async function listSports(key, signal) {
-  const { body } = await getJSON(id, `${BASE}/sports/?apiKey=${encodeURIComponent(key)}`, { signal });
+  const { body } = await getJSON(id, `${BASE}/sports/`, { signal, headers: auth(key) });
   return body;
 }
 
@@ -45,9 +48,9 @@ export async function fetchOdds({ key, settings, signal, progress }) {
     const sport = sportOf(sk);
     // Mercados admitidos por deporte (en tenis los totales/hándicaps de juegos suelen no estar en la región EU)
     const markets = cfg.markets.filter((m) => sport !== 'tennis' || m === 'h2h' || m === 'totals' || m === 'spreads');
-    const url = `${BASE}/sports/${sk}/odds/?apiKey=${encodeURIComponent(key)}&regions=${cfg.regions.join(',')}&markets=${markets.join(',')}&oddsFormat=decimal&dateFormat=iso&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
+    const url = `${BASE}/sports/${sk}/odds/?regions=${cfg.regions.join(',')}&markets=${markets.join(',')}&oddsFormat=decimal&dateFormat=iso&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
     try {
-      const { body, headers } = await getJSON(id, url, { signal });
+      const { body, headers } = await getJSON(id, url, { signal, headers: auth(key) });
       quota = quotaFrom(headers) || quota;
       for (const ev of body) {
         const n = normalizeEvent(ev, sport, books);
