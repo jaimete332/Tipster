@@ -119,6 +119,11 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
 .rleg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .76rem; color: var(--muted); }
 .rleg i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 .t5 { background: var(--allin); } .t4 { background: var(--raise); } .t3 { background: var(--call); } .t2 { background: #7fa7c9; } .t1 { background: var(--felt); } .t0 { background: var(--line); }
+.gloss { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; margin: 12px 0 0; font-size: .88rem; }
+.gloss dt { font-weight: 600; }
+.gloss dd { margin: 0; color: var(--muted); }
+summary { cursor: pointer; }
+@media (max-width: 480px) { .gloss { grid-template-columns: minmax(0, 1fr); } .gloss dd { margin-bottom: 6px; } }
 .foot-note { font-size: .76rem; color: var(--muted); margin: 0; }
 
 .mbar { display: none; }
@@ -140,7 +145,7 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
   <header class="top">
     <div>
       <h1>Tipster <span>Hold'em</span></h1>
-      <p class="tag">Marca tus cartas y lo que hacen los rivales. Calcula tu equity contra sus rangos y te dice la jugada de un profesional.</p>
+      <p class="tag">Marca tus cartas y lo que hacen los demás. Te dice qué haría un profesional y por qué, en palabras sencillas.</p>
     </div>
     <div class="hdr-actions">
       <button class="btn" id="btn-reset" type="button">Borrar mano</button>
@@ -168,25 +173,25 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
       <section class="card-panel" aria-label="Acción">
         <h2>Lo que ha pasado</h2>
         <div class="field">
-          <span class="lbl">Preflop, antes de tu decisión</span>
+          <span class="lbl">Antes del flop, hasta que te toca hablar</span>
           <div class="seg" id="seg-pre"></div>
           <div class="field" id="limpers-wrap" hidden>
-            <label for="in-limpers">Número de limpers</label>
+            <label for="in-limpers">¿Cuántos igualaron la ciega?</label>
             <div class="stepper"><button type="button" data-step="limpers:-1" aria-label="Menos">−</button><input id="in-limpers" type="number" min="1" max="8" step="1"><button type="button" data-step="limpers:1" aria-label="Más">+</button></div>
           </div>
         </div>
         <div id="streets"></div>
         <div class="fields">
-          <div class="field"><label for="in-pot">Bote total ahora (bb)</label><input id="in-pot" type="number" min="0" step="0.5"></div>
-          <div class="field"><label for="in-call">Te toca pagar (bb)</label><input id="in-call" type="number" min="0" step="0.5"></div>
-          <div class="field"><label for="in-opps">Rivales en la mano</label>
+          <div class="field"><label for="in-pot">Fichas en el bote</label><input id="in-pot" type="number" min="0" step="0.5"></div>
+          <div class="field"><label for="in-call">Lo que tienes que pagar</label><input id="in-call" type="number" min="0" step="0.5"></div>
+          <div class="field"><label for="in-opps">Rivales que siguen jugando</label>
             <div class="stepper"><button type="button" data-step="opps:-1" aria-label="Menos">−</button><input id="in-opps" type="number" min="1" max="8" step="1"><button type="button" data-step="opps:1" aria-label="Más">+</button></div></div>
         </div>
         <div class="toggles">
-          <label class="tg"><input type="checkbox" id="in-ip"> Actúo último después del flop (en posición)</label>
-          <label class="tg"><input type="checkbox" id="in-aggr"> Fui el último en subir preflop</label>
+          <label class="tg"><input type="checkbox" id="in-ip"> Hablo el último después del flop</label>
+          <label class="tg"><input type="checkbox" id="in-aggr"> Fui yo quien subió antes del flop</label>
         </div>
-        <p class="hint" id="amount-hint">Los importes se rellenan solos según la acción; corrígelos con las cifras reales de tu mesa.</p>
+        <p class="hint" id="amount-hint">Las cantidades se cuentan en ciegas grandes: si la ciega grande es 2 € y hay 30 € en el bote, pon 15. Se rellenan solas, pero corrígelas con lo que veas en tu mesa.</p>
       </section>
 
       <section class="card-panel" aria-label="Mesa y rivales">
@@ -194,10 +199,25 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
         <div class="fields">
           <div class="field"><label for="in-players">Jugadores en la mesa</label>
             <select id="in-players"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></div>
-          <div class="field"><label for="in-stack">Stack efectivo (bb)</label><input id="in-stack" type="number" min="1" step="1"></div>
+          <div class="field"><label for="in-stack">Tus fichas</label><input id="in-stack" type="number" min="1" step="1"></div>
         </div>
-        <div class="field"><span class="lbl">Tu posición</span><div class="seg" id="seg-pos"></div></div>
-        <div class="field"><span class="lbl">Tipo de rival</span><div class="seg" id="seg-type"></div></div>
+        <div class="field"><span class="lbl">Dónde estás sentado</span><div class="seg" id="seg-pos"></div><p class="hint">El botón es quien reparte y habla el último. Las ciegas son los dos jugadores a su izquierda, que ponen la apuesta obligatoria. Cuanto más tarde hablas, mejor.</p></div>
+        <div class="field"><span class="lbl">Cómo juega tu rival</span><div class="seg" id="seg-type"></div></div>
+      </section>
+      <section class="card-panel" aria-label="Palabras básicas">
+        <details>
+          <summary><h2 style="display:inline">Palabras básicas</h2></summary>
+          <dl class="gloss">
+            <dt>Ciega grande / pequeña</dt><dd>Apuestas obligatorias que ponen dos jugadores antes de repartir. Aquí todas las cantidades se cuentan en ciegas grandes.</dd>
+            <dt>Flop, turn y river</dt><dd>Las cartas comunes de la mesa: primero salen tres (flop), luego una cuarta (turn) y al final la quinta (river).</dd>
+            <dt>Pasar</dt><dd>No apostar cuando nadie ha apostado antes que tú. Sigues en la mano sin poner fichas.</dd>
+            <dt>Pagar</dt><dd>Poner las mismas fichas que ha apostado otro para seguir jugando.</dd>
+            <dt>Subir</dt><dd>Apostar más de lo que ha apostado otro.</dd>
+            <dt>Ir con todo</dt><dd>Apostar todas tus fichas.</dd>
+            <dt>Farol</dt><dd>Apostar sin buena mano para que el rival se retire.</dd>
+            <dt>Color y escalera</dt><dd>Color: cinco cartas del mismo palo. Escalera: cinco cartas seguidas (por ejemplo 5-6-7-8-9).</dd>
+          </dl>
+        </details>
       </section>
     </div>
 
@@ -210,12 +230,12 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
       <div class="adv-body">
         <div class="meter" id="meter">
           <div class="bar"><div class="fill" id="eq-fill" style="width:0%"></div><div class="mark" id="eq-mark" hidden></div></div>
-          <div class="meter-legend"><span id="eq-left">Equity —</span><span id="eq-right"></span></div>
+          <div class="meter-legend"><span id="eq-left"></span><span id="eq-right"></span></div>
         </div>
         <div class="stats" id="stats"></div>
         <ul class="reasons" id="reasons"></ul>
         <div class="range" id="range" hidden>
-          <span class="lbl">Rango estimado del rival</span>
+          <span class="lbl">Qué suele tener tu rival en esta situación</span>
           <div class="rbar" id="rbar"></div>
           <div class="rleg" id="rleg"></div>
         </div>
@@ -233,11 +253,19 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
   const $ = (id) => document.getElementById(id);
   const RN = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
   const STREETS = [['flop', 3, 'Flop'], ['turn', 4, 'Turn'], ['river', 5, 'River']];
-  const PRE_OPTS = [['none', 'Nadie entró'], ['limp', 'Limp(s)'], ['raise', 'Subida'], ['3bet', '3-bet'], ['4bet', '4-bet'], ['allin', 'All-in']];
-  const ACT_OPTS = [['-', 'Aún nada'], ['check', 'Pasó'], ['bet_small', 'Apuesta ≤ ½ bote'], ['bet_big', 'Apuesta > ½ bote'], ['raise', 'Subió mi apuesta'], ['allin', 'All-in'], ['call', 'Pagó mi apuesta']];
-  const TYPES = [['tight', 'Tight'], ['normal', 'Normal'], ['loose', 'Loose'], ['maniac', 'Maníaco']];
-  const ACTION_WORD = { FOLD: 'Retirarse', CHECK: 'Pasar', CALL: 'Pagar', BET: 'Apostar', RAISE: 'Subir', ALLIN: 'All-in', WAIT: 'Consejo' };
-  const TIER_NAMES = ['Nada', 'Proyecto', 'Pareja débil', 'Mano media', 'Mano fuerte', 'Monstruo'];
+  const PRE_OPTS = [['none', 'Nadie ha entrado'], ['limp', 'Alguien solo igualó la ciega'], ['raise', 'Alguien subió'], ['3bet', 'Subí y me volvieron a subir'], ['4bet', 'Me han subido 3 veces'], ['allin', 'Alguien fue con todo']];
+  const ACT_OPTS = [['-', 'Aún no ha hablado'], ['check', 'Pasó'], ['bet_small', 'Apostó poco (hasta medio bote)'], ['bet_big', 'Apostó mucho (más de medio bote)'], ['raise', 'Subió mi apuesta'], ['allin', 'Fue con todo'], ['call', 'Pagó mi apuesta']];
+  const TYPES = [['tight', 'Juega pocas manos'], ['normal', 'Normal'], ['loose', 'Juega muchas manos'], ['maniac', 'Apuesta sin parar']];
+  const POS_NAMES = { UTG: 'Primero', 'UTG+1': 'Segundo', 'UTG+2': 'Tercero', MP: 'Medio', HJ: 'Medio-tarde', CO: 'Antes del botón', BTN: 'Botón', SB: 'Ciega pequeña', BB: 'Ciega grande' };
+  const STREET_NAMES = { preflop: 'Antes del flop', flop: 'Flop · 3 cartas', turn: 'Turn · 4.ª carta', river: 'River · última carta' };
+  const RANK_WORD = { A: 'As', K: 'Rey', Q: 'Reina', J: 'Jota', T: '10' };
+  function handName(cls) {
+    const w = (r) => RANK_WORD[r] || r;
+    if (cls.length === 2) return `Pareja de ${w(cls[0])}`;
+    return `${w(cls[0])}-${w(cls[1])} ${cls[2] === 's' ? 'del mismo palo' : 'de distinto palo'}`;
+  }
+  const ACTION_WORD = { FOLD: 'Retirarse', CHECK: 'Pasar', CALL: 'Pagar', BET: 'Apostar', RAISE: 'Subir', ALLIN: 'Ve con todo', WAIT: 'Consejo' };
+  const TIER_NAMES = ['Nada', 'Le falta una carta', 'Pareja baja', 'Mano regular', 'Mano buena', 'Mano muy fuerte'];
   const P = (s) => E.parseCard(s);
   const r05 = (x) => Math.round(x * 2) / 2;
   const fmt = (x) => (Math.round(x * 10) / 10).toLocaleString('es-ES');
@@ -286,11 +314,11 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
     };
     $('board-slots').innerHTML = [2, 3, 4].map((i) => mk(i, 'Flop')).join('') + '<span class="gapper"></span>' + mk(5, 'Turn') + mk(6, 'River');
     $('hero-slots').innerHTML = mk(0, 'Carta 1') + mk(1, 'Carta 2');
-    $('street-pill').textContent = curStreet().toUpperCase();
+    $('street-pill').textContent = STREET_NAMES[curStreet()];
     const h = hero();
     if (h[0] != null && h[1] != null) {
       const cls = E.classOf(h[0], h[1]);
-      $('hand-tag').textContent = `${cls} · top ${Math.max(1, Math.round(E.CLASS_END[cls] * 100))}%`;
+      $('hand-tag').textContent = `${handName(cls)} · entre el ${Math.max(1, Math.round(E.CLASS_END[cls] * 100))}% mejor`;
     } else $('hand-tag').textContent = '';
     $('btn-clear-slot').disabled = S.cards[S.active] == null;
   }
@@ -315,7 +343,7 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
     for (const [st, k, name] of STREETS) {
       if (nb < k) break;
       const isCur = streetOf(nb) === st;
-      sh += `<div class="street-block"><span class="lbl">${name}: lo que hizo el rival${isCur ? ' (calle actual)' : ''}</span><div class="seg">` +
+      sh += `<div class="street-block"><span class="lbl">${name}: qué hizo tu rival${isCur ? ' (ahora)' : ''}</span><div class="seg">` +
         ACT_OPTS.map(([v, l]) => `<button type="button" data-act="${st}:${v}" aria-pressed="${S.acts[st] === v}">${l}</button>`).join('') + '</div></div>';
     }
     if (nb > 0 && nb < 3) sh = '<p class="hint">Completa las tres cartas del flop.</p>';
@@ -323,7 +351,7 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
     $('in-pot').value = S.pot; $('in-call').value = S.toCall; $('in-opps').value = S.opps;
     $('in-ip').checked = S.ip; $('in-aggr').checked = S.aggr;
     $('in-players').value = String(S.players); $('in-stack').value = S.stack;
-    seg('seg-pos', E.POSITIONS[S.players].map((p) => [p, p]), S.pos, 'pos');
+    seg('seg-pos', E.POSITIONS[S.players].map((p) => [p, POS_NAMES[p] || p]), S.pos, 'pos');
     seg('seg-type', TYPES, S.type, 'type');
   }
   function renderAll() { renderSlots(); renderPicker(); renderControls(); schedule(); }
@@ -342,11 +370,11 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
     const h = hero();
     const board = boardCards();
     const street = curStreet();
-    $('v-street').textContent = street === 'preflop' ? 'Preflop' : street[0].toUpperCase() + street.slice(1);
+    $('v-street').textContent = STREET_NAMES[street];
     if (h[0] == null || h[1] == null) {
-      setVerdict('WAIT', 'Consejo', 'Elige tus cartas', 'Toca las casillas de “Tu mano” y luego las cartas del selector.');
+      setVerdict('WAIT', 'Consejo', 'Elige tus cartas', 'Toca una casilla de “Tu mano” y después la carta que tienes.');
       $('stats').innerHTML = ''; $('reasons').innerHTML = ''; $('range').hidden = true; $('eq-fill').style.width = '0%';
-      $('eq-mark').hidden = true; $('eq-left').textContent = 'Equity —'; $('eq-right').textContent = ''; $('mb-eq').textContent = ''; $('foot').textContent = '';
+      $('eq-mark').hidden = true; $('eq-left').textContent = ''; $('eq-right').textContent = ''; $('mb-eq').textContent = ''; $('foot').textContent = '';
       return;
     }
     const dead = new Uint8Array(52);
@@ -383,24 +411,25 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
     const need = rec.required || 0;
     $('eq-mark').hidden = !(S.toCall > 0);
     $('eq-mark').style.left = `calc(${(need * 100).toFixed(1)}% - 1px)`;
-    $('eq-left').textContent = `Equity ${eqP}%`;
-    $('eq-right').textContent = S.toCall > 0 ? `Necesitas ${Math.round(need * 100)}% ▏` : 'Nadie te ha apostado';
-    $('mb-eq').textContent = `Equity ${eqP}%`;
+    $('eq-left').textContent = `Ganas el ${eqP}% de las veces`;
+    $('eq-right').textContent = S.toCall > 0 ? `Para pagar necesitas ${Math.round(need * 100)}% ▏` : 'No tienes que pagar nada';
+    $('mb-eq').textContent = `Ganas ${eqP}%`;
 
     const stats = [];
-    stats.push(['Equity', eqP + '%']);
-    stats.push(['Necesitas', S.toCall > 0 ? Math.round(need * 100) + '%' : '—']);
-    stats.push(['EV de pagar', S.toCall > 0 ? ((res.equity * (S.pot + S.toCall) - S.toCall) >= 0 ? '+' : '') + fmt(res.equity * (S.pot + S.toCall) - S.toCall) + ' bb' : '—']);
+    const ev = res.equity * (S.pot + S.toCall) - S.toCall;
+    stats.push(['Ganas', eqP + '% de las veces', true]);
+    stats.push(['Necesitas ganar', S.toCall > 0 ? Math.round(need * 100) + '% para pagar' : 'Nada que pagar', true]);
+    stats.push(['Si pagas, a la larga', S.toCall > 0 ? (ev >= 0 ? 'ganas ' : 'pierdes ') + fmt(Math.abs(ev)) + ' ciegas' : '—', true]);
     if (info) {
-      const draw = info.fd && (info.oesd || info.gut) ? 'proyecto de color y escalera' : info.fd ? 'proyecto de color' : info.oesd ? 'escalera abierta' : info.gut ? 'escalera interna' : '';
+      const draw = info.fd && (info.oesd || info.gut) ? 'te falta una carta para color o escalera' : info.fd ? 'te falta una carta para color' : (info.oesd || info.gut) ? 'te falta una carta para escalera' : '';
       const made = info.tier >= 2 || info.cat >= 1 ? info.label : 'Carta alta';
       stats.push(['Tienes', draw ? (made === 'Carta alta' ? draw[0].toUpperCase() + draw.slice(1) : made + ' + ' + draw) : made, true]);
-      stats.push(['Outs', info.outs ? String(info.outs) : '—']);
-      stats.push(['SPR', (S.stack / Math.max(S.pot, 0.5)).toFixed(1)]);
+      stats.push(['Cartas que te ayudan', info.outs ? info.outs + ' cartas' : 'Ninguna en especial', true]);
+      stats.push(['En el bote', fmt(S.pot) + ' ciegas', true]);
     } else {
-      stats.push(['Mano', cls, true]);
-      stats.push(['Ranking', 'top ' + Math.max(1, Math.round(E.CLASS_END[cls] * 100)) + '%']);
-      stats.push(['Pot odds', S.toCall > 0 ? (S.pot / S.toCall).toFixed(1) + ':1' : '—']);
+      stats.push(['Tu mano', handName(cls), true]);
+      stats.push(['Está entre', 'el ' + Math.max(1, Math.round(E.CLASS_END[cls] * 100)) + '% de mejores', true]);
+      stats.push(['En el bote', fmt(S.pot) + ' ciegas', true]);
     }
     $('stats').innerHTML = stats.map(([k, v, small]) => `<div class="stat"><span class="k">${k}</span><span class="v${small ? ' small' : ''}">${v}</span></div>`).join('');
     $('reasons').innerHTML = rec.reasons.map((r) => `<li>${r}</li>`).join('');
@@ -413,7 +442,7 @@ input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid v
       $('range').hidden = false;
     } else $('range').hidden = true;
 
-    $('foot').textContent = `${res.iters.toLocaleString('es-ES')} manos simuladas contra ${S.opps === 1 ? 'el rango del rival' : S.opps + ' rivales'}.` + (S.example ? ' Mano de ejemplo: cámbiala por la tuya.' : '');
+    $('foot').textContent = `Calculado repartiendo esta mano ${res.iters.toLocaleString('es-ES')} veces con las cartas que probablemente tiene${S.opps === 1 ? ' tu rival' : 'n tus rivales'}.` + (S.example ? ' Mano de ejemplo: cámbiala por la tuya.' : '');
   }
 
   /* ---------- Eventos ---------- */

@@ -166,23 +166,23 @@
         else return [0, 'Nada'];
       }
       if (pocket) {
-        if (pr > bRanks[0]) return [4, 'Overpair'];
-        if (pr > (bRanks[1] ?? -1)) return [3, 'Pareja intermedia'];
+        if (pr > bRanks[0]) return [4, 'Pareja en mano más alta que la mesa'];
+        if (pr > (bRanks[1] ?? -1)) return [3, 'Pareja mediana'];
         return [2, 'Pareja baja'];
       }
-      if (pr === bRanks[0]) return kick >= 8 ? [4, 'Top pair, buen kicker'] : [3, 'Top pair, kicker débil'];
+      if (pr === bRanks[0]) return kick >= 8 ? [4, 'Pareja con la carta más alta de la mesa'] : [3, 'Pareja con la carta más alta (acompañante bajo)'];
       if (pr === bRanks[1]) return [2, 'Segunda pareja'];
       return [2, 'Pareja baja'];
     };
 
-    if (cat >= 4) { tier = score > bscore ? 5 : 0; label = tier ? CAT_ES[cat] : 'Juegas el board'; }
-    else if (cat === 3) { if (bcat === 3) { tier = 0; label = 'Trío en el board'; } else { tier = 5; label = r1 === r2 ? 'Set' : 'Trío'; } }
+    if (cat >= 4) { tier = score > bscore ? 5 : 0; label = tier ? CAT_ES[cat] : 'La jugada está en la mesa, no en tus cartas'; }
+    else if (cat === 3) { if (bcat === 3) { tier = 0; label = 'El trío está en la mesa'; } else { tier = 5; label = 'Trío'; } }
     else if (cat === 2) {
       if (bcat === 0) { tier = 5; label = 'Doble pareja'; }
-      else if (bcat === 2) { tier = 0; label = 'Doble pareja en el board'; }
+      else if (bcat === 2) { tier = 0; label = 'Las dos parejas están en la mesa'; }
       else [tier, label] = pairTier();
     } else if (cat === 1) {
-      if (bcat === 1) { tier = 0; label = 'Pareja en el board'; } else [tier, label] = pairTier();
+      if (bcat === 1) { tier = 0; label = 'La pareja está en la mesa'; } else [tier, label] = pairTier();
     } else label = 'Carta alta';
 
     let fd = false, oesd = false, gut = false, outs = 0;
@@ -345,11 +345,17 @@
     return { equity: it ? eqSum / it : 0, win: wins / it, tie: ties / it, iters: it };
   }
 
-  /* ---------- Decisión ---------- */
+  /* ---------- Decisión (textos en lenguaje llano) ---------- */
   const BLUFF_3BET = new Set(['A5s', 'A4s', 'A3s', 'A2s', 'K9s', 'QTs', 'J9s', 'T9s', '98s', '87s', '76s', '65s']);
   const r05 = (x) => Math.max(0.5, Math.round(x * 2) / 2);
   const pct = (x) => Math.round(x * 100) + '%';
-  const bb = (x) => (Math.round(x * 10) / 10).toLocaleString('es-ES') + ' bb';
+  const bb = (x) => { const v = Math.round(x * 10) / 10; return v.toLocaleString('es-ES') + (v === 1 ? ' ciega' : ' ciegas'); };
+  const POS_ES = {
+    UTG: 'eres de los primeros en hablar', 'UTG+1': 'eres de los primeros en hablar', 'UTG+2': 'eres de los primeros en hablar',
+    MP: 'estás en el medio de la mesa', HJ: 'estás en el medio de la mesa', CO: 'estás justo antes del botón',
+    BTN: 'estás en el botón (hablas el último)', SB: 'estás en la ciega pequeña', BB: 'estás en la ciega grande',
+  };
+  const allin = (S) => `Ve con todo (${bb(S)})`;
 
   function boardTexture(board) {
     if (board.length < 3) return { wet: false, paired: false, label: '' };
@@ -365,12 +371,11 @@
     }
     const flushy = board.length === 3 ? maxSuit >= 2 : maxSuit >= 3;
     const wet = (flushy || conn) && !paired ? true : flushy && conn;
-    const parts = [];
-    if (maxSuit >= 3) parts.push(board.length === 3 ? 'monocolor' : 'color posible');
-    else if (maxSuit === 2 && board.length === 3) parts.push('dos del mismo palo');
-    if (conn) parts.push('conectado');
-    if (paired) parts.push('emparejado');
-    return { wet, paired, flushy, conn, label: parts.length ? parts.join(', ') : 'seco' };
+    let label;
+    if (wet) label = 'La mesa es peligrosa: hay posibles colores o escaleras.';
+    else if (paired) label = 'La mesa tiene una pareja.';
+    else label = 'La mesa es tranquila: pocas jugadas peligrosas posibles.';
+    return { wet, paired, flushy, conn, label };
   }
 
   function decide(ctx) {
@@ -385,50 +390,56 @@
     const gap = RANKS.indexOf(heroClass[0]) - RANKS.indexOf(heroClass[1]);
     const rfi = rfiPct(pos, players);
     const out = (action, amount, label, extra) => Object.assign({ action, amount, label, reasons, required }, extra || {});
+    const where = POS_ES[pos] || '';
 
-    R(`${heroClass} está en el top ${pct(p)} de manos iniciales.`);
+    R(`Tu mano está entre el ${pct(p)} de mejores manos para empezar.`);
 
     if (preAction === 'none') {
-      if (pos === 'BB') return out('CHECK', 0, 'Te llevas las ciegas', { note: 'Si nadie ha entrado, todos se han retirado ante ti.' });
+      if (pos === 'BB') return out('CHECK', 0, 'Ganas las ciegas', { note: 'Si nadie ha entrado, todos se han retirado y el bote es tuyo.' });
       if (S <= 15) {
         const pp = pushPct(pos, players, S);
-        R(`Con ${bb(S)} se juega push/fold: desde ${pos} se va all-in con el top ${pct(pp)}.`);
-        return p <= pp ? out('ALLIN', S, `All-in ${bb(S)}`) : out('FOLD', 0, 'Retírate');
+        R(`Te quedan pocas fichas (${bb(S)}): lo mejor es ir con todo o retirarse. Desde donde estás se va con todo con el ${pct(pp)} de mejores manos.`);
+        return p <= pp ? out('ALLIN', S, allin(S)) : out('FOLD', 0, 'Retírate');
       }
-      R(`Desde ${pos} con ${playersBehind(pos, players)} jugadores detrás, un profesional abre el top ${pct(rfi)}.`);
+      R(`Como ${where}, un buen jugador entra subiendo solo con el ${pct(rfi)} de mejores manos.`);
       if (p <= rfi) {
         const size = pos === 'SB' ? 3 : S <= 30 ? 2.2 : 2.5;
-        const mix = p > rfi * 0.85 ? 'Mano límite: ábrela, pero retírate ante una resubida fuerte.' : null;
+        const mix = p > rfi * 0.85 ? 'Mano justa: sube, pero si alguien vuelve a subir fuerte, retírate.' : null;
         return out('RAISE', size, `Sube a ${bb(size)}`, { mix });
       }
-      if (pos === 'SB' && p <= 0.6 && S >= 30) return out('CALL', toCall, `Completa (${bb(toCall)})`, { mix: 'Alternativa: retirarse. Completar solo contra una ciega grande pasiva.' });
+      if (pos === 'SB' && p <= 0.6 && S >= 30) return out('CALL', toCall, `Iguala la ciega (${bb(toCall)})`, { mix: 'También vale retirarse. Iguala solo si la ciega grande juega poco.' });
+      R('Tu mano no es suficientemente buena para entrar desde aquí.');
       return out('FOLD', 0, 'Retírate');
     }
 
     if (preAction === 'limp') {
       const iso = rfi * 0.75 || 0.12;
+      const who = limpers > 1 ? `${limpers} jugadores han entrado` : 'un jugador ha entrado';
       if (S <= 15) {
         const pp = pushPct(pos, players, S) * 0.8;
-        if (p <= pp) return out('ALLIN', S, `All-in ${bb(S)}`);
+        R(`Te quedan pocas fichas (${bb(S)}): ve con todo o no juegues.`);
+        if (p <= pp) return out('ALLIN', S, allin(S));
         return pos === 'BB' ? out('CHECK', 0, 'Pasa') : out('FOLD', 0, 'Retírate');
       }
       if (pos === 'BB') {
-        if (p <= 0.12) { const sz = 4 + limpers; R('Con una mano fuerte castiga a los limpers.'); return out('RAISE', sz, `Sube a ${bb(sz)}`); }
-        return out('CHECK', 0, 'Pasa', { note: 'Ves el flop gratis.' });
+        if (p <= 0.12) { const sz = 4 + limpers; R(`${who[0].toUpperCase() + who.slice(1)} pagando lo mínimo. Con una mano tan buena, sube para que te paguen más.`); return out('RAISE', sz, `Sube a ${bb(sz)}`); }
+        R('Ya has puesto la ciega grande: puedes ver las siguientes cartas sin pagar nada más.');
+        return out('CHECK', 0, 'Pasa');
       }
-      R(`Contra ${limpers} limper${limpers > 1 ? 's' : ''} se aísla con el top ${pct(iso)}.`);
-      if (p <= iso) { const sz = (ip ? 3 : 4) + limpers; return out('RAISE', sz, `Sube a ${bb(sz)} (aislar)`); }
+      R(`${who[0].toUpperCase() + who.slice(1)} pagando solo lo mínimo, señal de manos flojas. Subir para jugar contra uno solo funciona con el ${pct(iso)} de mejores manos.`);
+      if (p <= iso) { const sz = (ip ? 3 : 4) + limpers; return out('RAISE', sz, `Sube a ${bb(sz)}`); }
       if (p <= rfi * 1.3 + 0.05 && (pair || (suited && gap <= 2)) && S >= 40) {
-        R('Manos especulativas: entrar barato buscando set, color o escalera.');
-        return out('CALL', toCall, `Paga ${bb(toCall)} (limp)`);
+        R('Tu mano puede convertirse en algo muy fuerte (trío, color o escalera). Entra pagando poco para verlo.');
+        return out('CALL', toCall, `Paga ${bb(toCall)}`);
       }
-      if (pos === 'SB' && p <= 0.5) return out('CALL', toCall, `Completa ${bb(toCall)}`);
+      if (pos === 'SB' && p <= 0.5) return out('CALL', toCall, `Iguala la ciega (${bb(toCall)})`);
       return out('FOLD', 0, 'Retírate');
     }
 
     if (preAction === 'allin') {
-      R(`Equity contra un rango de all-in: ${pct(eq)}. Necesitas ${pct(required)}.`);
-      return eq >= required ? out('CALL', toCall, `Paga el all-in (${bb(toCall)})`) : out('FOLD', 0, 'Retírate');
+      R(`Contra las manos con las que un jugador suele ir con todo, ganarías el ${pct(eq)} de las veces.`);
+      R(`Para que pagar te salga a cuenta necesitas ganar al menos el ${pct(required)} de las veces.`);
+      return eq >= required ? out('CALL', toCall, `Paga ${bb(toCall)} (vas con todo)`) : out('FOLD', 0, 'Retírate');
     }
 
     const heroIn = posted(pos, players);
@@ -436,53 +447,55 @@
       const Rsz = toCall + heroIn;
       if (S <= 18) {
         const rejam = Math.min(0.35, 0.13 * (12 / S));
-        R(`Stack corto (${bb(S)}): resube all-in o retírate. Rango de resubida: top ${pct(rejam)}.`);
-        return p <= rejam ? out('ALLIN', S, `All-in ${bb(S)}`) : out('FOLD', 0, 'Retírate');
+        R(`Te quedan pocas fichas (${bb(S)}): o vas con todo o te retiras. Se va con todo con el ${pct(rejam)} de mejores manos.`);
+        return p <= rejam ? out('ALLIN', S, allin(S)) : out('FOLD', 0, 'Retírate');
       }
       const value3 = ctx.type === 'tight' ? 0.025 : ctx.type === 'normal' ? 0.035 : 0.05;
       const real = ip ? 0.95 : pos === 'BB' ? 0.85 : 0.72;
       const implied = (pair || (suited && gap <= 2)) && S >= 50 ? 0.04 : 0;
       const callOk = eq * real + implied >= required;
-      R(`Equity contra su rango de subida: ${pct(eq)}. ${ip ? 'En posición' : 'Fuera de posición'} realizas ~${pct(real)} de ella.`);
+      R(`Contra las manos con las que se suele subir, ganarías el ${pct(eq)} de las veces.`);
+      if (!ip) R('Después tendrás que hablar antes que él, y eso es una desventaja.');
       if (p <= value3) {
         const to = r05(Rsz * (ip ? 3 : 4));
-        R('Mano premium: resube por valor (3-bet).');
-        return to >= S * 0.4 ? out('ALLIN', S, `All-in ${bb(S)}`) : out('RAISE', to, `3-bet a ${bb(to)}`);
+        R('Tienes de las mejores manos posibles: vuelve a subir para meter más dinero en el bote.');
+        return to >= S * 0.4 ? out('ALLIN', S, allin(S)) : out('RAISE', to, `Vuelve a subir a ${bb(to)}`);
       }
       if (BLUFF_3BET.has(heroClass) && (ip || pos === 'SB' || pos === 'BB') && S >= 40) {
         const to = r05(Rsz * (ip ? 3 : 4));
-        return out('RAISE', to, `3-bet a ${bb(to)}`, { mix: `Farol de 3-bet: hazlo ~40% de las veces; el resto ${callOk ? 'paga' : 'retírate'}.`, bluff: true });
+        return out('RAISE', to, `Vuelve a subir a ${bb(to)}`, { mix: `Esto es un farol: hazlo más o menos 4 de cada 10 veces para no ser predecible. El resto de veces, ${callOk ? 'paga' : 'retírate'}.`, bluff: true });
       }
       if (callOk) {
-        R(`Pagar necesita ${pct(required)} de equity; la realizada más las implied odds llegan.`);
+        R(`Pagar te cuesta poco en comparación con lo que hay en el bote: solo necesitas ganar el ${pct(required)} de las veces.`);
+        if (implied) R('Además, si ligas algo fuerte puedes ganar mucho más después.');
         return out('CALL', toCall, `Paga ${bb(toCall)}`);
       }
-      R(`No alcanzas el ${pct(required)} que exige el bote.`);
+      R(`Para que pagar salga a cuenta necesitarías ganar el ${pct(required)} de las veces, y no llegas.`);
       return out('FOLD', 0, 'Retírate');
     }
 
     if (preAction === '3bet') {
       const v3 = toCall + 2.5;
-      R(`Equity contra un rango de 3-bet: ${pct(eq)}.`);
+      R(`Te han vuelto a subir. Contra las manos con las que se hace eso, ganarías el ${pct(eq)} de las veces.`);
       if (p <= 0.026) {
         const to = r05(v3 * 2.25);
-        R('Top de rango: 4-bet por valor.');
-        return to >= S * 0.4 ? out('ALLIN', S, `All-in ${bb(S)}`) : out('RAISE', to, `4-bet a ${bb(to)}`);
+        R('Tienes de las mejores manos posibles: sube otra vez.');
+        return to >= S * 0.4 ? out('ALLIN', S, allin(S)) : out('RAISE', to, `Sube otra vez a ${bb(to)}`);
       }
       const real = ip ? 0.9 : 0.75;
       const setMine = pair && S >= 15 * toCall ? 0.06 : 0;
       const implied = suited && gap <= 1 && S >= 80 ? 0.03 : 0;
       if (eq * real + setMine + implied >= required) {
-        if (setMine) R('Pareja con stacks profundos: pagas buscando el set (implied odds).');
+        if (setMine) R('Con una pareja y muchas fichas, pagas para intentar ligar un trío: si sale, puedes ganar un bote enorme.');
         return out('CALL', toCall, `Paga ${bb(toCall)}`);
       }
-      R(`Necesitas ${pct(required)}; tu equity realizada no llega.`);
+      R('Tu mano no es lo bastante buena para seguir ante tanta fuerza.');
       return out('FOLD', 0, 'Retírate');
     }
 
     if (preAction === '4bet') {
-      R(`Equity contra un rango de 4-bet: ${pct(eq)}.`);
-      if (p <= 0.018) return out('ALLIN', S, `All-in ${bb(S)}`);
+      R(`Te han subido por tercera vez: eso casi siempre son manos muy fuertes. Ganarías el ${pct(eq)} de las veces.`);
+      if (p <= 0.018) return out('ALLIN', S, allin(S));
       if (p <= 0.045 && eq * 0.9 >= required) return out('CALL', toCall, `Paga ${bb(toCall)}`);
       return out('FOLD', 0, 'Retírate');
     }
@@ -500,68 +513,70 @@
     const strongDraw = street !== 'river' && (info.fd || info.oesd);
     const out = (action, amount, label, extra) => Object.assign({ action, amount, label, reasons, required, spr, texture: tex }, extra || {});
     const betSize = (frac) => { const a = r05(pot * frac); return a >= S * 0.7 ? S : a; };
+    const frac = (f) => (f <= 0.35 ? 'un tercio del bote' : f <= 0.45 ? 'algo menos de la mitad del bote' : f <= 0.55 ? 'la mitad del bote' : 'dos tercios del bote');
 
-    R(`Equity estimada: ${pct(eq)} contra ${n === 1 ? 'el rango del rival' : n + ' rivales'} según su acción.`);
-    if (strongDraw) R(`Proyecto con ${info.outs} outs${info.fd ? ' (color)' : ''}${info.oesd ? ' (escalera abierta)' : ''}.`);
-    R(`Board ${tex.label}. SPR ${spr.toFixed(1)}.`);
+    R(`Ganarías esta mano el ${pct(eq)} de las veces, teniendo en cuenta lo que ${n === 1 ? 'ha hecho tu rival' : `han hecho tus ${n} rivales`}.`);
+    if (strongDraw) R(`Te falta una carta para ${info.fd ? 'hacer color' : 'hacer escalera'}: quedan ${info.outs} cartas en la baraja que te la dan.`);
+    R(tex.label);
 
     if (toCall <= 0) {
       if (eq >= vt) {
-        if (spr <= 1.5) { R('SPR muy bajo: mete todo, ya estás comprometido.'); return out('ALLIN', S, `All-in ${bb(S)}`); }
-        let frac = tex.wet ? 0.66 : 0.4;
-        if (street === 'river') frac = eq >= 0.85 ? 0.75 : 0.5;
-        if (street === 'turn' && eq >= 0.8) frac = 0.75;
-        const a = betSize(frac);
-        R(`Vas por delante: apuesta por valor${tex.wet ? ' y cobra a los proyectos' : ''}.`);
-        const mix = street === 'flop' && eq >= 0.9 && !tex.wet && n === 1 ? 'Opción: pasar para inducir (slowplay) en board seco.' : null;
-        return out(a >= S ? 'ALLIN' : 'BET', a, a >= S ? `All-in ${bb(S)}` : `Apuesta ${bb(a)} (${Math.round(frac * 100)}% del bote)`, { mix });
+        if (spr <= 1.5) { R('Te quedan pocas fichas comparado con el bote: métela todas ya.'); return out('ALLIN', S, allin(S)); }
+        let f = tex.wet ? 0.66 : 0.4;
+        if (street === 'river') f = eq >= 0.85 ? 0.75 : 0.5;
+        if (street === 'turn' && eq >= 0.8) f = 0.75;
+        const a = betSize(f);
+        R(`Vas ganando: apuesta para que te paguen con manos peores${tex.wet ? ' y para que no vean gratis la carta que les podría ayudar' : ''}.`);
+        const mix = street === 'flop' && eq >= 0.9 && !tex.wet && n === 1 ? 'Otra opción: pasar para hacerte el débil y que él apueste.' : null;
+        return out(a >= S ? 'ALLIN' : 'BET', a, a >= S ? allin(S) : `Apuesta ${bb(a)}`, { mix: mix || `Es ${f >= 0.75 ? 'unas tres cuartas partes del bote' : frac(f)}.` });
       }
       if (strongDraw && n <= 2 && (ip || aggressor || n === 1)) {
         const a = betSize(0.6);
-        R('Semifarol: ganas si se retira y tienes outs si paga.');
-        return out('BET', a, `Apuesta ${bb(a)} (semifarol)`);
+        R('Apostar aquí te da dos formas de ganar: que se retire ahora, o que te salga la carta que te falta.');
+        return out('BET', a, `Apuesta ${bb(a)}`, { mix: 'Es un farol con posibilidades: aún no tienes nada, pero puedes ligar.' });
       }
       if (street === 'flop' && aggressor && n === 1 && !tex.wet) {
         const a = betSize(0.33);
-        R('Fuiste el agresor preflop: en board seco la apuesta de continuación pequeña funciona muy a menudo.');
-        return out('BET', a, `Apuesta ${bb(a)} (c-bet 33%)`, { mix: eq < 0.35 ? 'Con aire puro, c-bet ~60% de las veces; el resto pasa.' : null, bluff: eq < 0.4 });
+        R('Fuiste tú quien subió antes del flop, así que el rival espera que tengas buena mano. En una mesa tranquila, una apuesta pequeña le hace retirarse muchas veces.');
+        return out('BET', a, `Apuesta ${bb(a)}`, { mix: eq < 0.35 ? 'Si no tienes nada, hazlo unas 6 de cada 10 veces; las demás, pasa.' : 'Es un tercio del bote.', bluff: eq < 0.4 });
       }
       if (street === 'river' && n === 1 && ip && eq >= 0.55) {
         const a = betSize(0.35);
-        R('Valor fino en el river: los rivales pagan con manos peores.');
-        return out('BET', a, `Apuesta ${bb(a)} (valor fino)`);
+        R('Probablemente vas ganando: una apuesta pequeña hará que te pague con manos algo peores.');
+        return out('BET', a, `Apuesta ${bb(a)}`);
       }
       if (street === 'river' && n === 1 && ip && villainChecked && eq < 0.2 && type !== 'loose' && type !== 'maniac') {
         const a = betSize(0.6);
-        R('Tu mano no gana en showdown; el rival mostró debilidad.');
-        return out('CHECK', 0, 'Pasa', { mix: `Farol opcional: apuesta ${bb(a)} ~1 de cada 3 veces.` });
+        R('Si enseñáis las cartas, casi seguro pierdes. Pero tu rival ha pasado, lo que suele indicar que tampoco tiene mucho.');
+        return out('CHECK', 0, 'Pasa', { mix: `Farol opcional: apuesta ${bb(a)} más o menos 1 de cada 3 veces.` });
       }
-      R(eq >= 0.4 ? 'Mano de valor medio: controla el bote.' : 'Sin valor ni proyecto suficiente: no metas dinero.');
+      R(eq >= 0.4 ? 'Tienes una mano regular: pasa para no hacer el bote demasiado grande.' : 'No tienes nada que valga la pena: no metas más fichas.');
       return out('CHECK', 0, 'Pasa');
     }
 
     // Toca pagar
     const implied = strongDraw && spr > 2 ? (street === 'flop' ? 0.05 : 0.04) : 0;
     const callEV = eq * (pot + toCall) - toCall;
-    R(`Necesitas ${pct(required)} para pagar (pot odds ${((pot) / toCall).toFixed(1)}:1). EV inmediato de pagar: ${callEV >= 0 ? '+' : ''}${bb(callEV)}.`);
+    R(`Pagar te cuesta ${bb(toCall)} para optar a un bote de ${bb(pot + toCall)}: te sale a cuenta si ganas al menos el ${pct(required)} de las veces.`);
+    R(callEV >= 0 ? `A la larga, pagar aquí te hace ganar unas ${bb(callEV)} de media cada vez.` : `A la larga, pagar aquí te hace perder unas ${bb(-callEV)} de media cada vez.`);
     const raiseT = (n === 1 ? 0.72 : Math.max(vt + 0.12, 0.5)) + (street === 'river' ? 0.13 : street === 'turn' ? 0.06 : 0);
     if (eq >= raiseT) {
       const to = r05(toCall * 3 + (pot - toCall) * 0.3);
-      if (spr <= 2 || to >= S * 0.45) { R('Mano muy fuerte y stacks cortos respecto al bote: all-in.'); return out('ALLIN', S, `All-in ${bb(S)}`); }
-      R('Mano muy fuerte: sube para construir el bote.');
-      return out('RAISE', to, `Sube a ${bb(to)}`, { mix: street === 'river' ? null : 'Contra rivales muy agresivos también vale solo pagar.' });
+      if (spr <= 2 || to >= S * 0.45) { R('Tu mano es muy fuerte y ya hay mucho en el bote: métela todo.'); return out('ALLIN', S, allin(S)); }
+      R('Tu mano es muy fuerte: sube para ganar un bote más grande.');
+      return out('RAISE', to, `Sube a ${bb(to)}`, { mix: street === 'river' ? null : 'Si tu rival apuesta mucho por su cuenta, también vale solo pagar y dejarle seguir apostando.' });
     }
     if (street === 'flop' && n === 1 && strongDraw && info.outs >= 12 && spr > 2) {
       const to = r05(toCall * 3 + (pot - toCall) * 0.3);
-      R('Proyecto enorme: subir como semifarol maximiza tu equity de retirada.');
-      return out(to >= S * 0.45 ? 'ALLIN' : 'RAISE', to >= S * 0.45 ? S : to, to >= S * 0.45 ? `All-in ${bb(S)}` : `Sube a ${bb(to)} (semifarol)`, { mix: 'Pagar también es correcto.' });
+      R('Tienes muchísimas cartas que te ayudan: subir puede hacer que se retire, y si paga sigues teniendo muchas opciones de ligar.');
+      return out(to >= S * 0.45 ? 'ALLIN' : 'RAISE', to >= S * 0.45 ? S : to, to >= S * 0.45 ? allin(S) : `Sube a ${bb(to)}`, { mix: 'Pagar también es una buena opción.' });
     }
     if (eq + implied >= required) {
-      if (implied && eq < required) R('Pagas por implied odds: si ligas tu proyecto cobrarás más adelante.');
-      if (spr <= 1 && eq >= required) return out('ALLIN', S, `All-in ${bb(S)}`);
+      if (implied && eq < required) R('Ahora mismo el precio es algo caro, pero si te sale la carta que necesitas podrás ganar mucho más después.');
+      if (spr <= 1 && eq >= required) return out('ALLIN', S, allin(S));
       return out('CALL', toCall, `Paga ${bb(toCall)}`);
     }
-    R('El precio es demasiado alto para tu equity.');
+    R('Te piden demasiado para lo poco que ganas: retírate.');
     return out('FOLD', 0, 'Retírate');
   }
 
