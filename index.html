@@ -120,6 +120,11 @@ kbd { font-family: var(--f-mono); font-size: .66rem; border: 1px solid currentCo
 .quick-advice span { font-size: .85rem; }
 .quick-advice em { font-style: normal; font-size: .75rem; opacity: .85; width: 100%; }
 .quick-advice:hover { filter: brightness(1.06); }
+.qe-cta { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--soft); }
+.qe-list { display: grid; gap: 8px; }
+.qe-row { display: grid; grid-template-columns: minmax(70px, 1fr) 120px auto; gap: 8px; align-items: center; }
+.qe-row label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 480px) { .qe-row { grid-template-columns: minmax(0, 1fr) 100px; } .qe-row .btn { grid-column: 1 / -1; } }
 .err { color: var(--fold); font-size: .85rem; margin: 0; }
 .result { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .pots { display: grid; gap: 10px; }
@@ -302,7 +307,7 @@ summary { cursor: pointer; }
   }
 
   let T, H = null, hist = [];
-  const ui = { split: false, sel: null, slot: null, amt: null, amtFor: null, err: '', wipe: false };
+  const ui = { quickEnd: false, qe: null, split: false, sel: null, slot: null, amt: null, amtFor: null, err: '', wipe: false };
 
   function defaultTable() {
     return { sb: 1, bb: 2, dealer: 0, seats: Array.from({ length: 6 }, (_, i) => ({ name: NAMES[i], stack: 200, on: true, style: 'normal' })) };
@@ -631,6 +636,16 @@ summary { cursor: pointer; }
       else h += '<h2>Preparado para jugar</h2><p class="hint">Comprueba los jugadores, las fichas y quién es el dealer. Al empezar, las ciegas se ponen solas.</p>';
       h += `<div class="acts"><button class="btn primary big" type="button" data-do="${H ? 'next' : 'start'}">${H ? 'Siguiente mano →' : 'Empezar mano'}</button></div>`;
       h += `<p class="hint">${H ? 'El dealer pasa al siguiente jugador. Toca un asiento si alguien recompra o se va. ' : ''}<span class="kbd-hint">Tecla Intro.</span></p>`;
+    } else if (ui.quickEnd) {
+      const live = H.ids.filter((i) => !H.p[i].folded);
+      const pot = potTotal();
+      const total = r2(live.reduce((a, i) => a + H.p[i].stack, 0) + pot);
+      h += `<h2>¿Con cuántas fichas acaba cada uno?</h2><p class="hint">Escribe las fichas que tiene cada jugador al terminar. Si uno ganó el bote sin más apuestas, toca «Se lleva el bote». Entre ellos hay ${nf(total)} fichas en juego.</p><div class="qe-list">`;
+      for (const i of live) {
+        const v = ui.qe && ui.qe[i] != null ? ui.qe[i] : H.p[i].stack;
+        h += `<div class="qe-row"><label for="qe-${i}">${esc(name(i))}</label><input id="qe-${i}" type="number" min="0" step="any" value="${v}"><button class="btn" type="button" data-qepot="${i}">Se lleva el bote (+${nf(pot)})</button></div>`;
+      }
+      h += `</div><p class="hint" id="qe-sum">${qeSumText()}</p><div class="acts"><button class="btn primary big" type="button" data-do="qe-save">Guardar y terminar la mano</button><button class="btn" type="button" data-do="qe-cancel">Volver</button></div>`;
     } else if (H.needBoard) {
       const what = H.street === 1 ? 'las 3 cartas del flop' : H.street === 2 ? 'la carta del turn' : 'la carta del river';
       h += `<div class="turn-head"><h2>Pon ${what}</h2><span class="turn-meta">${boardCards().length} de ${needCards()}</span></div>`;
@@ -697,8 +712,42 @@ summary { cursor: pointer; }
       }
       h += '<p class="hint kbd-hint">Con teclado: Espacio hace lo que dice el consejo. F, C, A, 1-4, R, X y Z para deshacer.</p>';
     }
+    if (H && !H.done && !ui.quickEnd && !heroLive()) {
+      h = `<div class="qe-cta"><span>Te has retirado. ¿No quieres apuntar el resto?</span><button class="btn primary" type="button" data-do="qe-open">Poner cuántas fichas se lleva cada uno</button></div>` + h;
+    }
     if (ui.err) h += `<p class="err">${esc(ui.err)}</p>`;
     el.innerHTML = h;
+  }
+  function qeLive() { return H.ids.filter((i) => !H.p[i].folded); }
+  function qeValues() {
+    const out = {};
+    for (const i of qeLive()) { const v = ui.qe && ui.qe[i] != null ? ui.qe[i] : H.p[i].stack; out[i] = isNaN(v) ? 0 : v; }
+    return out;
+  }
+  function qeSumText() {
+    const live = qeLive();
+    const total = r2(live.reduce((a, i) => a + H.p[i].stack, 0) + potTotal());
+    const vals = qeValues();
+    const sum = r2(live.reduce((a, i) => a + vals[i], 0));
+    const d = r2(total - sum);
+    const f = (x) => (x === 1 ? '1 ficha' : nf(x) + ' fichas');
+    return d === 0 ? '✓ Las fichas cuadran.' : d > 0 ? `${d === 1 ? 'Falta' : 'Faltan'} ${f(d)} por repartir.` : `${d === -1 ? 'Sobra' : 'Sobran'} ${f(-d)}: revisa las cantidades.`;
+  }
+  function qeSave() {
+    const live = qeLive(), vals = qeValues();
+    const total = r2(live.reduce((a, i) => a + H.p[i].stack, 0) + potTotal());
+    const d = r2(total - live.reduce((a, i) => a + vals[i], 0));
+    snap();
+    const lines = [];
+    for (const i of live) {
+      H.p[i].stack = r2(Math.max(0, vals[i]));
+      const diff = r2(H.p[i].stack - T.seats[i].stack);
+      lines.push(`${name(i)} acaba con ${nf(H.p[i].stack)} fichas (${diff >= 0 ? '+' : '−'}${nf(Math.abs(diff))}).`);
+    }
+    if (d !== 0) lines.push(`Aviso: las cantidades no cuadraban por ${nf(Math.abs(d))} fichas.`);
+    H.result = lines;
+    ui.quickEnd = false; ui.qe = null;
+    endHand();
   }
 
   function setVerdict(a, kicker, main, mix) {
@@ -852,6 +901,11 @@ summary { cursor: pointer; }
     }
     if (d.card != null) { placeCard(+d.card); render(); return; }
     if (d.slot != null) { const k = +d.slot; ui.slot = ui.slot === k ? null : k; render(); return; }
+    if (d.qepot != null) {
+      const w = +d.qepot, pot = potTotal(); ui.qe = {};
+      for (const i of qeLive()) ui.qe[i] = r2(H.p[i].stack + (i === w ? pot : 0));
+      render(); return;
+    }
     if (d.qa != null) { act('raise', +d.qa); return; }
     if (d.win) {
       const [k, i] = d.win.split(':').map(Number);
@@ -867,13 +921,16 @@ summary { cursor: pointer; }
     }
     switch (d.do || t.id) {
       case 'start': snap(); startHand(); render(); return;
-      case 'next': ui.split = false; nextHand(); return;
+      case 'next': ui.split = false; ui.quickEnd = false; nextHand(); return;
       case 'fold': act('fold'); return;
       case 'check': act('check'); return;
       case 'call': act('call'); return;
       case 'allin': act('allin'); return;
       case 'raise': { const v = parseFloat($('in-amt').value); if (isNaN(v)) { ui.err = 'Escribe una cantidad.'; render(); return; } act('raise', v); return; }
       case 'bulk': bulk(); return;
+      case 'qe-open': ui.quickEnd = true; ui.qe = null; render(); return;
+      case 'qe-cancel': ui.quickEnd = false; render(); return;
+      case 'qe-save': qeSave(); render(); return;
       case 'follow': {
         const a = heroAdvice(); if (!a || !a.rec) return;
         const m = { FOLD: 'fold', CHECK: 'check', CALL: 'call', ALLIN: 'allin' }[a.rec.action];
@@ -885,7 +942,7 @@ summary { cursor: pointer; }
       case 'pay': snap(); finishHand(); render(); return;
       case 'dealer': T.dealer = ui.sel; render(); return;
       case 'close-ed': ui.sel = null; render(); return;
-      case 'btn-undo': { const s = hist.pop(); if (s) { T = s.T; H = s.H; ui.err = ''; ui.amtFor = null; ui.slot = null; } render(); return; }
+      case 'btn-undo': { const s = hist.pop(); ui.quickEnd = false; if (s) { T = s.T; H = s.H; ui.err = ''; ui.amtFor = null; ui.slot = null; } render(); return; }
       case 'btn-clear': { const tgt = cardTarget(); if (tgt == null) return; snap(); if (tgt < 2) H.hero[tgt] = null; else H.board[tgt - 2] = null; ui.slot = tgt; render(); return; }
       case 'btn-all': { const v = parseFloat($('in-all').value); if (v > 0) { snap(); T.seats.forEach((s) => { if (s.on) s.stack = v; }); } render(); return; }
       case 'btn-wipe':
@@ -894,7 +951,11 @@ summary { cursor: pointer; }
       case 'mbar': $('advice').scrollIntoView({ behavior: 'smooth', block: 'start' }); return;
     }
   });
-  document.addEventListener('input', (ev) => { if (ev.target.id === 'in-amt') ui.amt = parseFloat(ev.target.value); });
+  document.addEventListener('input', (ev) => {
+    const id = ev.target.id;
+    if (id === 'in-amt') ui.amt = parseFloat(ev.target.value);
+    if (id.startsWith('qe-')) { ui.qe = ui.qe || {}; ui.qe[+id.slice(3)] = parseFloat(ev.target.value); $('qe-sum').textContent = qeSumText(); }
+  });
   document.addEventListener('change', (ev) => {
     const t = ev.target;
     if (t.id === 'ed-name') { T.seats[ui.sel].name = t.value.trim() || 'Asiento ' + (ui.sel + 1); render(); return; }
