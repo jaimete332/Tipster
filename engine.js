@@ -394,7 +394,7 @@
     const out = (action, amount, label, extra) => Object.assign({ action, amount, label, reasons, required }, extra || {});
     const where = POS_ES[pos] || '';
 
-    R(`Tu mano está entre el ${pct(p)} de mejores manos para empezar.`);
+    R(`Tu mano está entre el ${Math.max(1, Math.round(p * 100))}% de mejores manos para empezar.`);
 
     if (preAction === 'none') {
       if (pos === 'BB') return out('CHECK', 0, 'Ganas las ciegas', { note: 'Si nadie ha entrado, todos se han retirado y el bote es tuyo.' });

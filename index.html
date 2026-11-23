@@ -108,6 +108,18 @@ input[type=number] { font-family: var(--f-mono); }
 .raise-row input { width: 110px; }
 .quick { display: flex; gap: 4px; flex-wrap: wrap; }
 .quick button { border: 1px solid var(--line); background: var(--soft); border-radius: 7px; padding: 5px 8px; font-size: .8rem; }
+.btn.big { padding: 12px 18px; font-size: 1rem; }
+.btn.bulk { width: 100%; background: var(--soft); }
+kbd { font-family: var(--f-mono); font-size: .66rem; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; opacity: .55; margin-left: 4px; }
+@media (hover: none) { kbd, .kbd-hint { display: none; } }
+.btn[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.quick-advice { width: 100%; border: 0; text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px; background: var(--check); color: var(--on-v); }
+.quick-advice[data-a="FOLD"] { background: var(--fold); } .quick-advice[data-a="CALL"] { background: var(--call); }
+.quick-advice[data-a="BET"], .quick-advice[data-a="RAISE"] { background: var(--raise); } .quick-advice[data-a="ALLIN"] { background: var(--allin); }
+.quick-advice b { font-family: var(--f-display); font-size: 1.6rem; line-height: 1.1; }
+.quick-advice span { font-size: .85rem; }
+.quick-advice em { font-style: normal; font-size: .75rem; opacity: .85; width: 100%; }
+.quick-advice:hover { filter: brightness(1.06); }
 .err { color: var(--fold); font-size: .85rem; margin: 0; }
 .result { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .pots { display: grid; gap: 10px; }
@@ -290,7 +302,7 @@ summary { cursor: pointer; }
   }
 
   let T, H = null, hist = [];
-  const ui = { sel: null, slot: null, amt: null, amtFor: null, err: '', wipe: false };
+  const ui = { split: false, sel: null, slot: null, amt: null, amtFor: null, err: '', wipe: false };
 
   function defaultTable() {
     return { sb: 1, bb: 2, dealer: 0, seats: Array.from({ length: 6 }, (_, i) => ({ name: NAMES[i], stack: 200, on: true, style: 'normal' })) };
@@ -334,7 +346,7 @@ summary { cursor: pointer; }
   }
   function move(P, a) { a = r2(a); P.stack = r2(P.stack - a); P.bet = r2(P.bet + a); P.total = r2(P.total + a); if (P.stack <= 0.001) { P.stack = 0; P.allin = true; } }
 
-  function act(type, to) {
+  function act(type, to, silent) {
     const s = H.toAct, P = H.p[s];
     const callAmt = r2(Math.min(H.maxBet - P.bet, P.stack));
     if (type === 'check' && callAmt > 0) type = 'call';
@@ -349,7 +361,7 @@ summary { cursor: pointer; }
         type = 'raise';
       }
     }
-    snap();
+    if (!silent) snap();
     ui.err = '';
     const e = { street: H.street, seat: s, type, potBefore: potTotal(), prevMax: H.maxBet };
     if (type === 'fold') P.folded = true;
@@ -366,8 +378,20 @@ summary { cursor: pointer; }
     e.to = P.bet; e.allin = P.allin;
     H.log.push(e);
     settle(false);
+    if (!silent) render();
+  }
+  // Retira (o pasa) a todos los que hablan antes que tú, de una vez.
+  function bulk() {
+    snap();
+    const st = H.street;
+    for (let k = 0; k < 12; k++) {
+      if (H.done || H.needBoard || H.street !== st || H.toAct == null || H.toAct === 0) break;
+      const P = H.p[H.toAct];
+      act(H.maxBet - P.bet > 0 ? 'fold' : 'check', null, true);
+    }
     render();
   }
+  const heroLive = () => H && !H.done && H.ids.includes(0) && !H.p[0].folded;
 
   // Decide quién habla ahora o si se cierra la ronda de apuestas.
   function settle(fresh) {
@@ -520,7 +544,7 @@ summary { cursor: pointer; }
     for (const c of board) dead[c] = 1;
     const post = (seat) => { const out = []; for (let k = 1; k <= Math.min(st, 3); k++) if (board.length >= k + 2) out.push({ action: streetAct(seat, k), board: board.slice(0, k + 2) }); return out; };
     const ranges = eqSeats.map((seat) => E.buildRange({ band: E.villainBand(preKeyFor(seat, pf), styleOf(seat), S), streets: post(seat), type: styleOf(seat) }, dead));
-    const res = E.equity(H.hero, board, ranges, { iters: 25000, timeMs: 220 });
+    const res = E.equity(H.hero, board, ranges, { iters: 20000, timeMs: 140 });
     // Rival principal: el último que ha apostado en esta calle; si no, quien subió antes del flop.
     let main = null;
     for (const e of H.log) if (e.street === st && (e.type === 'bet' || e.type === 'raise') && e.seat !== 0 && opps.includes(e.seat)) main = e.seat;
@@ -600,56 +624,78 @@ summary { cursor: pointer; }
   function renderTurn() {
     const el = $('turn');
     let h = '';
+    const tgt = cardTarget();
+    const inlinePicker = (title) => `<div class="field"><span class="lbl">${title}</span><div class="picker">${pickerHTML(tgt)}</div></div>`;
     if (!H || H.done) {
       if (H) h += `<h2>Resultado</h2><ul class="result">${H.result.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
       else h += '<h2>Preparado para jugar</h2><p class="hint">Comprueba los jugadores, las fichas y quién es el dealer. Al empezar, las ciegas se ponen solas.</p>';
-      h += `<div class="acts"><button class="btn primary" type="button" data-do="${H ? 'next' : 'start'}">${H ? 'Siguiente mano →' : 'Empezar mano'}</button></div>`;
-      if (H) h += '<p class="hint">El dealer pasa al siguiente jugador. Toca un asiento si alguien recompra o se va.</p>';
+      h += `<div class="acts"><button class="btn primary big" type="button" data-do="${H ? 'next' : 'start'}">${H ? 'Siguiente mano →' : 'Empezar mano'}</button></div>`;
+      h += `<p class="hint">${H ? 'El dealer pasa al siguiente jugador. Toca un asiento si alguien recompra o se va. ' : ''}<span class="kbd-hint">Tecla Intro.</span></p>`;
     } else if (H.needBoard) {
       const what = H.street === 1 ? 'las 3 cartas del flop' : H.street === 2 ? 'la carta del turn' : 'la carta del river';
-      h += `<h2>Pon ${what}</h2><p class="hint">Elígelas en el panel de cartas (${boardCards().length} de ${needCards()}). Después sigue la ronda de apuestas.</p>`;
-      if (!H.ids.includes(0) || H.p[0].folded) h += '<div class="acts"><button class="btn" type="button" data-do="skipboard">Seguir sin poner cartas</button></div>';
+      h += `<div class="turn-head"><h2>Pon ${what}</h2><span class="turn-meta">${boardCards().length} de ${needCards()}</span></div>`;
+      h += inlinePicker('Toca las cartas que han salido');
+      if (!heroLive()) h += '<div class="acts"><button class="btn" type="button" data-do="skipboard">Seguir sin poner cartas</button></div>';
     } else if (H.street === 4) {
-      h += '<h2>¿Quién gana?</h2><p class="hint">Mirad las cartas y toca al ganador de cada bote. Si empatan, toca a los dos.</p><div class="pots">';
+      const contested = H.pots.map((p, k) => k).filter((k) => H.pots[k].elig.length > 1);
+      const quick = contested.length === 1 && !ui.split;
+      h += `<h2>¿Quién gana?</h2><p class="hint">${quick ? 'Toca al ganador y las fichas se reparten solas.' : 'Toca al ganador de cada bote. Si empatan, toca a los dos.'}</p><div class="pots">`;
       H.pots.forEach((p, k) => {
         const title = H.pots.length === 1 ? 'Bote' : k === 0 ? 'Bote principal' : `Bote aparte ${k}`;
         if (p.elig.length === 1) { h += `<div class="potbox"><span class="lbl">${title}: ${nf(p.amount)}</span><span>${p.elig[0] === 0 ? 'Te vuelve a ti' : 'Vuelve a ' + esc(name(p.elig[0]))}: nadie lo pagó.</span></div>`; return; }
-        h += `<div class="potbox"><span class="lbl">${title}: ${nf(p.amount)} fichas</span><div class="seg">` +
-          p.elig.map((i) => `<button type="button" data-win="${k}:${i}" aria-pressed="${(H.winners[k] || []).includes(i)}">${esc(name(i))}</button>`).join('') + '</div></div>';
+        h += `<div class="potbox"><span class="lbl">${title}: ${nf(p.amount)} fichas</span><div class="acts">` +
+          p.elig.map((i) => `<button class="btn big" type="button" data-win="${k}:${i}" aria-pressed="${(H.winners[k] || []).includes(i)}">${esc(name(i))}</button>`).join('') + '</div></div>';
       });
-      const ready = H.pots.every((p, k) => (H.winners[k] || []).length);
-      h += `</div><div class="acts"><button class="btn primary" type="button" data-do="pay" ${ready ? '' : 'disabled'}>Dar las fichas</button></div>`;
+      h += '</div>';
+      if (quick) h += '<div class="acts"><button class="btn" type="button" data-do="split">Ha habido empate</button></div>';
+      else {
+        const ready = H.pots.every((p, k) => (H.winners[k] || []).length);
+        h += `<div class="acts"><button class="btn primary big" type="button" data-do="pay" ${ready ? '' : 'disabled'}>Dar las fichas</button></div>`;
+      }
     } else {
       const s = H.toAct, P = H.p[s], hero = s === 0;
       const toCall = r2(Math.min(H.maxBet - P.bet, P.stack));
       const pot = potTotal();
-      let rec = null, recAmt = null;
-      if (hero) { const a = heroAdvice(); if (a && a.rec) { rec = a.rec.action; if (rec === 'BET' || rec === 'RAISE') recAmt = r2(a.rec.amount * T.bb); } }
+      let a = null, rec = null, recAmt = null;
+      if (hero) { a = heroAdvice(); if (a && a.rec) { rec = a.rec.action; if (rec === 'BET' || rec === 'RAISE') recAmt = r2(a.rec.amount * T.bb); } }
       const minTo = r2(Math.min(H.maxBet + H.minRaise, P.bet + P.stack));
       const k = JSON.stringify([H.log.length, s, rec]);
       if (ui.amtFor !== k) { ui.amtFor = k; ui.amt = recAmt != null ? Math.max(minTo, recAmt) : minTo; }
       const isRec = (...ks) => (ks.includes(rec) ? ' rec' : '');
       h += `<div class="turn-head"><h2>${hero ? 'Te toca a ti' : 'Le toca a ' + esc(name(s))}</h2><span class="turn-meta">Bote ${nf(pot)} · ${toCall > 0 ? 'para pagar ' + nf(toCall) : 'nadie ha apostado'} · le quedan ${nf(P.stack)}</span></div>`;
-      if (!hero) h += '<p class="hint">Marca lo que ha hecho este jugador.</p>';
+      if (heroLive() && (H.hero[0] == null || H.hero[1] == null)) h += inlinePicker('Primero, tus cartas');
+      if (hero && a && a.rec) {
+        h += `<button type="button" class="quick-advice" data-do="follow" data-a="${a.rec.action}"><b>${esc(a.rec.label)}</b><span>Ganas el ${Math.round(a.res.equity * 100)}%${a.toCall > 0 ? ` · necesitas ${Math.round((a.rec.required || 0) * 100)}%` : ''}</span><em>Toca para hacerlo <kbd>Espacio</kbd></em></button>`;
+        if (a.rec.mix) h += `<p class="hint">${esc(a.rec.mix)}</p>`;
+      }
       h += '<div class="acts">';
-      if (toCall > 0) h += `<button class="btn a-fold${isRec('FOLD')}" type="button" data-do="fold">${hero ? 'Me retiro' : 'Se retira'}</button>`;
-      if (toCall > 0) h += `<button class="btn a-call${isRec('CALL')}" type="button" data-do="call">${hero ? 'Pago' : 'Paga'} ${nf(toCall)}</button>`;
-      else h += `<button class="btn${isRec('CHECK')}" type="button" data-do="check">${hero ? 'Paso' : 'Pasa'}</button>`;
-      h += `<button class="btn a-allin${isRec('ALLIN')}" type="button" data-do="allin">Todo (${nf(P.stack + P.bet)})</button>`;
+      if (toCall > 0) h += `<button class="btn big a-fold${isRec('FOLD')}" type="button" data-do="fold">${hero ? 'Me retiro' : 'Se retira'} <kbd>F</kbd></button>`;
+      if (toCall > 0) h += `<button class="btn big a-call${isRec('CALL')}" type="button" data-do="call">${hero ? 'Pago' : 'Paga'} ${nf(toCall)} <kbd>C</kbd></button>`;
+      else h += `<button class="btn big${isRec('CHECK')}" type="button" data-do="check">${hero ? 'Paso' : 'Pasa'} <kbd>C</kbd></button>`;
+      h += `<button class="btn big a-allin${isRec('ALLIN')}" type="button" data-do="allin">Todo ${nf(P.stack + P.bet)} <kbd>A</kbd></button>`;
       h += '</div>';
       if (P.stack > toCall) {
         const quick = [];
-        if (H.street === 0) { for (const m of [2.5, 3, 4]) quick.push([`×${String(m).replace('.', ',')}`, r2(H.maxBet * m)]); }
+        if (H.street === 0) { for (const m of [2.5, 3, 4]) quick.push([`${H.maxBet > T.bb ? 'Sube ×' : 'Sube a '}${H.maxBet > T.bb ? String(m).replace('.', ',') : nf(H.maxBet * m)}`, r2(H.maxBet * m)]); }
         else {
           const base = (f) => (H.maxBet === 0 ? r2(pot * f) : r2(H.maxBet + f * (pot + (H.maxBet - P.bet))));
-          quick.push(['½ bote', base(0.5)], ['¾ bote', base(0.75)], ['Bote', base(1)]);
+          const w = H.maxBet === 0 ? 'Apuesta' : 'Sube';
+          quick.push([`${w} ⅓`, base(1 / 3)], [`${w} ½`, base(0.5)], [`${w} ¾`, base(0.75)], [`${w} bote`, base(1)]);
         }
+        const recQuick = recAmt != null && quick.some(([, v]) => Math.min(Math.max(minTo, v), r2(P.stack + P.bet)) === Math.max(minTo, recAmt));
+        h += '<div class="acts">' + quick.map(([l, v], j) => {
+          const amt = Math.min(Math.max(minTo, v), r2(P.stack + P.bet));
+          return `<button class="btn a-raise${recQuick && amt === Math.max(minTo, recAmt) ? ' rec' : ''}" type="button" data-qa="${amt}">${l}${H.street === 0 && H.maxBet > T.bb ? ` (${nf(amt)})` : H.street > 0 ? ` (${nf(amt)})` : ''} <kbd>${j + 1}</kbd></button>`;
+        }).join('') + '</div>';
         const verb = H.maxBet > 0 ? (hero ? 'Subo a' : 'Sube a') : (hero ? 'Apuesto' : 'Apuesta');
-        h += `<div class="raise-row"><button class="btn a-raise${isRec('BET', 'RAISE')}" type="button" data-do="raise">${verb}</button>` +
-          `<input id="in-amt" type="number" min="${minTo}" step="any" value="${ui.amt}" aria-label="Cantidad">` +
-          `<span class="quick">${quick.map(([l, v]) => `<button type="button" data-q="${Math.min(Math.max(minTo, v), r2(P.stack + P.bet))}">${l}</button>`).join('')}</span></div>`;
+        h += `<div class="raise-row"><input id="in-amt" type="number" min="${minTo}" step="any" value="${ui.amt}" aria-label="Otra cantidad">` +
+          `<button class="btn a-raise${recQuick ? '' : isRec('BET', 'RAISE')}" type="button" data-do="raise">${verb} esta cantidad <kbd>R</kbd></button></div>`;
       }
-      if (hero && (H.hero[0] == null || H.hero[1] == null)) h += '<p class="hint">Pon tus cartas para que el consejo sepa lo que tienes.</p>';
+      if (!hero && H.toAct !== 0) {
+        const lbl = toCall > 0 ? (heroLive() ? 'Se retiran todos hasta ti' : 'Se retiran todos') : (heroLive() ? 'Pasan todos hasta ti' : 'Pasan todos');
+        h += `<div class="acts"><button class="btn bulk" type="button" data-do="bulk">⏩ ${lbl} <kbd>X</kbd></button></div>`;
+      }
+      h += '<p class="hint kbd-hint">Con teclado: Espacio hace lo que dice el consejo. F, C, A, 1-4, R, X y Z para deshacer.</p>';
     }
     if (ui.err) h += `<p class="err">${esc(ui.err)}</p>`;
     el.innerHTML = h;
@@ -710,6 +756,15 @@ summary { cursor: pointer; }
     if (heroIn) for (let i = 0; i < 2; i++) if (H.hero[i] == null) return i;
     return null;
   }
+  function pickerHTML(tgt) {
+    const used = new Set(H ? H.hero.concat(H.board).filter((c) => c != null) : []);
+    let html = '';
+    for (let s = 0; s < 4; s++) for (let r = 12; r >= 0; r--) {
+      const c = E.card(r, s);
+      html += `<button type="button" class="pk c${s}" data-card="${c}" ${used.has(c) || tgt == null ? 'disabled' : ''} aria-label="${E.cardStr(c)}"><b>${RN[r]}</b><i>${E.SUIT_SYM[s]}</i></button>`;
+    }
+    return html;
+  }
   function renderCards() {
     const tgt = cardTarget();
     const allowedBoard = H && !H.done && H.street > 0 ? Math.min(needCards(), 5) : 0;
@@ -721,13 +776,7 @@ summary { cursor: pointer; }
     $('slots').innerHTML = '<span class="lbl">Tú</span>' + mk(0, 'Tu 1') + mk(1, 'Tu 2') + '<span class="sl-gap"></span><span class="lbl">Mesa</span>' +
       [2, 3, 4, 5, 6].map((i) => mk(i, ['Flop', 'Flop', 'Flop', 'Turn', 'River'][i - 2])).join('');
     $('cards-title').textContent = tgt == null ? 'Cartas' : tgt < 2 ? 'Elige tus cartas' : tgt <= 4 ? 'Elige las cartas del flop' : tgt === 5 ? 'Elige el turn' : 'Elige el river';
-    const used = new Set(H ? H.hero.concat(H.board).filter((c) => c != null) : []);
-    let html = '';
-    for (let s = 0; s < 4; s++) for (let r = 12; r >= 0; r--) {
-      const c = E.card(r, s);
-      html += `<button type="button" class="pk c${s}" data-card="${c}" ${used.has(c) || tgt == null ? 'disabled' : ''} aria-label="${E.cardStr(c)}"><b>${RN[r]}</b><i>${E.SUIT_SYM[s]}</i></button>`;
-    }
-    $('picker').innerHTML = html;
+    $('picker').innerHTML = pickerHTML(tgt);
     const cur = tgt == null ? null : tgt < 2 ? H.hero[tgt] : H.board[tgt - 2];
     $('btn-clear').disabled = cur == null || (tgt >= 2 && !H.needBoard);
   }
@@ -803,8 +852,13 @@ summary { cursor: pointer; }
     }
     if (d.card != null) { placeCard(+d.card); render(); return; }
     if (d.slot != null) { const k = +d.slot; ui.slot = ui.slot === k ? null : k; render(); return; }
-    if (d.q != null) { ui.amt = +d.q; $('in-amt').value = d.q; return; }
-    if (d.win) { const [k, i] = d.win.split(':').map(Number); const a = H.winners[k] || []; H.winners[k] = a.includes(i) ? a.filter((x) => x !== i) : a.concat(i); render(); return; }
+    if (d.qa != null) { act('raise', +d.qa); return; }
+    if (d.win) {
+      const [k, i] = d.win.split(':').map(Number);
+      const contested = H.pots.filter((p) => p.elig.length > 1).length;
+      if (contested === 1 && !ui.split) { snap(); H.winners[k] = [i]; finishHand(); render(); return; }
+      const a = H.winners[k] || []; H.winners[k] = a.includes(i) ? a.filter((x) => x !== i) : a.concat(i); render(); return;
+    }
     if (d.style) { T.seats[ui.sel].style = d.style; render(); return; }
     if (d.on != null) {
       T.seats[ui.sel].on = d.on === '1';
@@ -813,12 +867,20 @@ summary { cursor: pointer; }
     }
     switch (d.do || t.id) {
       case 'start': snap(); startHand(); render(); return;
-      case 'next': nextHand(); return;
+      case 'next': ui.split = false; nextHand(); return;
       case 'fold': act('fold'); return;
       case 'check': act('check'); return;
       case 'call': act('call'); return;
       case 'allin': act('allin'); return;
       case 'raise': { const v = parseFloat($('in-amt').value); if (isNaN(v)) { ui.err = 'Escribe una cantidad.'; render(); return; } act('raise', v); return; }
+      case 'bulk': bulk(); return;
+      case 'follow': {
+        const a = heroAdvice(); if (!a || !a.rec) return;
+        const m = { FOLD: 'fold', CHECK: 'check', CALL: 'call', ALLIN: 'allin' }[a.rec.action];
+        if (m) act(m); else act('raise', Math.max(r2(Math.min(H.maxBet + H.minRaise, H.p[0].bet + H.p[0].stack)), r2(a.rec.amount * T.bb)));
+        return;
+      }
+      case 'split': ui.split = true; render(); return;
       case 'skipboard': snap(); boardReady(); render(); return;
       case 'pay': snap(); finishHand(); render(); return;
       case 'dealer': T.dealer = ui.sel; render(); return;
@@ -848,7 +910,21 @@ summary { cursor: pointer; }
       H = null; render();
     }
   });
-  document.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.id === 'in-amt') { ev.preventDefault(); act('raise', parseFloat(ev.target.value)); } });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target.id === 'in-amt') { ev.preventDefault(); act('raise', parseFloat(ev.target.value)); return; }
+    if (ev.metaKey || ev.ctrlKey || ev.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
+    const k = ev.key.toLowerCase();
+    const press = (sel) => { const b = document.querySelector('#turn ' + sel); if (b && !b.disabled) { ev.preventDefault(); b.click(); } };
+    if (k === 'z') { ev.preventDefault(); $('btn-undo').click(); return; }
+    if (k === 'f') press('[data-do="fold"]');
+    else if (k === 'c') press('[data-do="call"], [data-do="check"]');
+    else if (k === 'a') press('[data-do="allin"]');
+    else if (k === 'x') press('[data-do="bulk"]');
+    else if (k === 'r') { const i = $('in-amt'); if (i) { ev.preventDefault(); i.focus(); i.select(); } }
+    else if (/^[1-4]$/.test(k)) press(`[data-qa]:nth-of-type(${k})`);
+    else if (k === ' ') press('[data-do="follow"]');
+    else if (k === 'enter') press('[data-do="next"], [data-do="start"], [data-do="pay"]');
+  });
   let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(renderTable, 120); });
 
   /* ---------- Arranque ---------- */
