@@ -109,7 +109,8 @@ input[type=number] { font-family: var(--f-mono); }
 .quick { display: flex; gap: 4px; flex-wrap: wrap; }
 .quick button { border: 1px solid var(--line); background: var(--soft); border-radius: 7px; padding: 5px 8px; font-size: .8rem; }
 .btn.big { padding: 12px 18px; font-size: 1rem; }
-.btn.bulk { width: 100%; background: var(--soft); }
+.btn.bulk { flex: 1 1 200px; background: var(--soft); }
+.card-pending { font-family: var(--f-mono); }
 kbd { font-family: var(--f-mono); font-size: .66rem; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; opacity: .55; margin-left: 4px; }
 @media (hover: none) { kbd, .kbd-hint { display: none; } }
 .btn[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
@@ -311,7 +312,7 @@ summary { cursor: pointer; }
   }
 
   let T, H = null, hist = [];
-  const ui = { quickEnd: false, qe: null, split: false, sel: null, slot: null, amt: null, amtFor: null, err: '', wipe: false };
+  const ui = { pendRank: null, quickEnd: false, qe: null, split: false, sel: null, slot: null, amt: null, amtFor: null, err: '', wipe: false };
 
   function defaultTable() {
     return { sb: 1, bb: 2, dealer: 0, seats: Array.from({ length: 6 }, (_, i) => ({ name: NAMES[i], stack: 200, on: true, style: 'normal' })) };
@@ -390,13 +391,13 @@ summary { cursor: pointer; }
     if (!silent) render();
   }
   // Retira (o pasa) a todos los que hablan antes que tú, de una vez.
-  function bulk() {
+  function bulk(mode) {
     snap();
     const st = H.street;
     for (let k = 0; k < 12; k++) {
       if (H.done || H.needBoard || H.street !== st || H.toAct == null || H.toAct === 0) break;
       const P = H.p[H.toAct];
-      act(H.maxBet - P.bet > 0 ? 'fold' : 'check', null, true);
+      act(mode === 'call' ? 'call' : H.maxBet - P.bet > 0 ? 'fold' : 'check', null, true);
     }
     render();
   }
@@ -638,8 +639,9 @@ summary { cursor: pointer; }
     if (!H || H.done) {
       if (H) h += `<h2>Resultado</h2><ul class="result">${H.result.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
       else h += '<h2>Preparado para jugar</h2><p class="hint">Comprueba los jugadores, las fichas y quién es el dealer. Al empezar, las ciegas se ponen solas.</p>';
-      h += `<div class="acts"><button class="btn primary big" type="button" data-do="${H ? 'next' : 'start'}">${H ? 'Siguiente mano →' : 'Empezar mano'}</button></div>`;
-      h += `<p class="hint">${H ? 'El dealer pasa al siguiente jugador. Toca un asiento si alguien recompra o se va. ' : ''}<span class="kbd-hint">Tecla Intro.</span></p>`;
+      h += `<div class="field"><span class="lbl">${H ? 'Siguiente mano: toca tu primera carta' : 'Empieza: toca tu primera carta'}</span><div class="picker">${pickerHTML(0, true)}</div></div>`;
+      h += `<div class="acts"><button class="btn" type="button" data-do="${H ? 'next' : 'start'}">${H ? 'Siguiente mano sin poner cartas' : 'Empezar sin poner cartas'}</button></div>`;
+      h += `<p class="hint">${H ? 'El dealer pasa solo al siguiente jugador. Si alguien recompra o se va, toca su asiento antes. ' : ''}<span class="kbd-hint">También puedes escribir la carta: rango (2-9, T, J, Q, K, A) y palo (s picas, h corazones, d diamantes, c tréboles).</span></p>`;
     } else if (ui.quickEnd) {
       const live = H.ids.filter((i) => !H.p[i].folded);
       const pot = potTotal();
@@ -712,9 +714,9 @@ summary { cursor: pointer; }
       }
       if (!hero && H.toAct !== 0) {
         const lbl = toCall > 0 ? (heroLive() ? 'Se retiran todos hasta ti' : 'Se retiran todos') : (heroLive() ? 'Pasan todos hasta ti' : 'Pasan todos');
-        h += `<div class="acts"><button class="btn bulk" type="button" data-do="bulk">⏩ ${lbl} <kbd>X</kbd></button></div>`;
+        h += `<div class="acts bulk-row"><button class="btn bulk" type="button" data-do="bulk">⏩ ${lbl} <kbd>X</kbd></button>${toCall > 0 ? `<button class="btn bulk a-call" type="button" data-do="bulkcall">⏩ ${heroLive() ? 'Pagan todos hasta ti' : 'Pagan todos'} <kbd>V</kbd></button>` : ''}</div>`;
       }
-      h += '<p class="hint kbd-hint">Con teclado: Espacio hace lo que dice el consejo. F, C, A, 1-4, R, X y Z para deshacer.</p>';
+      h += '<p class="hint kbd-hint">Con teclado: Espacio hace lo que dice el consejo. F, C, A, 1-4, R, X, V y Z para deshacer. Las cartas se escriben con rango y palo (ej. «a» «s» = A♠).</p>';
     }
     if (H && !H.done && !ui.quickEnd && !heroLive()) {
       h = `<div class="qe-cta"><span>Te has retirado. ¿No quieres apuntar el resto?</span><button class="btn primary" type="button" data-do="qe-open">Poner cuántas fichas se lleva cada uno</button></div>` + h;
@@ -809,8 +811,8 @@ summary { cursor: pointer; }
     if (heroIn) for (let i = 0; i < 2; i++) if (H.hero[i] == null) return i;
     return null;
   }
-  function pickerHTML(tgt) {
-    const used = new Set(H ? H.hero.concat(H.board).filter((c) => c != null) : []);
+  function pickerHTML(tgt, fresh) {
+    const used = new Set(H && !fresh ? H.hero.concat(H.board).filter((c) => c != null) : []);
     let html = '';
     for (let s = 0; s < 4; s++) for (let r = 12; r >= 0; r--) {
       const c = E.card(r, s);
@@ -906,7 +908,10 @@ summary { cursor: pointer; }
       if (ui.sel != null && window.innerWidth < 960) $('seat-ed').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       return;
     }
-    if (d.card != null) { placeCard(+d.card); render(); return; }
+    if (d.card != null) {
+      if (!H || H.done) { ui.split = false; ui.quickEnd = false; if (H) nextHand(); else { snap(); startHand(); } if (!H || H.done) { render(); return; } }
+      placeCard(+d.card); render(); return;
+    }
     if (d.slot != null) { const k = +d.slot; ui.slot = ui.slot === k ? null : k; render(); return; }
     if (d.qepot != null) {
       const w = +d.qepot, pot = potTotal(); ui.qe = {};
@@ -935,6 +940,7 @@ summary { cursor: pointer; }
       case 'allin': act('allin'); return;
       case 'raise': { const v = parseFloat($('in-amt').value); if (isNaN(v)) { ui.err = 'Escribe una cantidad.'; render(); return; } act('raise', v); return; }
       case 'bulk': bulk(); return;
+      case 'bulkcall': bulk('call'); return;
       case 'qe-open': ui.quickEnd = true; ui.qe = null; render(); return;
       case 'qe-cancel': ui.quickEnd = false; render(); return;
       case 'qe-save': qeSave(); render(); return;
@@ -991,16 +997,37 @@ summary { cursor: pointer; }
     if (ev.metaKey || ev.ctrlKey || ev.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
     const k = ev.key.toLowerCase();
     const press = (sel) => { const b = document.querySelector('#turn ' + sel); if (b && !b.disabled) { ev.preventDefault(); b.click(); } };
+    if (document.querySelector('#turn .picker')) {
+      const RK = '23456789tjqka', SU = 'shdc';
+      if (RK.includes(k) && k.length === 1) { ev.preventDefault(); ui.pendRank = RK.indexOf(k); flashPending(); return; }
+      if (k === '1' || k === '0') { ev.preventDefault(); ui.pendRank = 8; flashPending(); return; }
+      if (SU.includes(k) && k.length === 1 && ui.pendRank != null) {
+        ev.preventDefault();
+        const c = E.card(ui.pendRank, SU.indexOf(k)); ui.pendRank = null;
+        const b = document.querySelector(`#turn [data-card="${c}"]`);
+        if (b && !b.disabled) b.click(); else flashPending('Esa carta ya está usada');
+        return;
+      }
+      if (k === 'escape') { ui.pendRank = null; flashPending(); return; }
+      if (SU.includes(k) && k.length === 1) { ev.preventDefault(); flashPending('Primero el rango (2-9, T, J, Q, K, A), luego el palo'); return; }
+    }
     if (k === 'z') { ev.preventDefault(); $('btn-undo').click(); return; }
     if (k === 'f') press('[data-do="fold"]');
     else if (k === 'c') press('[data-do="call"], [data-do="check"]');
     else if (k === 'a') press('[data-do="allin"]');
     else if (k === 'x') press('[data-do="bulk"]');
+    else if (k === 'v') press('[data-do="bulkcall"]');
     else if (k === 'r') { const i = $('in-amt'); if (i) { ev.preventDefault(); i.focus(); i.select(); } }
     else if (/^[1-4]$/.test(k)) press(`[data-qa]:nth-of-type(${k})`);
     else if (k === ' ') press('[data-do="follow"]');
     else if (k === 'enter') press('[data-do="next"], [data-do="start"], [data-do="pay"]');
   });
+  function flashPending(msg) {
+    const lbl = document.querySelector('#turn .picker')?.previousElementSibling;
+    if (!lbl) return;
+    if (!lbl.dataset.base) lbl.dataset.base = lbl.textContent;
+    lbl.textContent = msg || (ui.pendRank != null ? `${lbl.dataset.base} · ${RN[ui.pendRank]} … ahora el palo (s, h, d, c)` : lbl.dataset.base);
+  }
   let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(renderTable, 120); });
 
   /* ---------- Arranque ---------- */
