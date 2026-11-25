@@ -14,6 +14,12 @@ Abre `index.html` en el navegador (no necesita servidor ni instalación).
 
 Las cantidades se muestran en fichas reales; por dentro el motor trabaja en ciegas grandes. La mesa se guarda en el navegador y se puede deshacer cualquier paso.
 
+## Formato Expresso Nitro
+
+En *Ajustes de la mesa → Formato* hay un ajuste para partidas de 3 jugadores con 300 fichas y ciegas iniciales de 10/20. Con mesas de 3 o menos, el motor amplía los rangos de los rivales cuando suben o van con todo, como ocurre en los formatos hiper turbo. Las ciegas se cambian a mano entre manos.
+
+Pensado para estudiar y revisar manos después de jugar: las salas de póker online, Winamax incluida, prohíben las herramientas de ayuda en tiempo real.
+
 ## Archivos
 
 - `engine.js`: evaluador de manos, rangos, simulación y reglas de decisión (funciona también en Node).

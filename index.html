@@ -210,6 +210,10 @@ summary { cursor: pointer; }
       <section class="panel" id="seat-ed" hidden></section>
       <section class="panel" aria-label="Ajustes de la mesa">
         <h2>Ajustes de la mesa</h2>
+        <div class="field"><span class="lbl">Formato</span>
+          <div class="acts"><button class="btn" id="btn-nitro" type="button">Expresso Nitro (3 jugadores, 300 fichas)</button><button class="btn" id="btn-six" type="button">Mesa de 6 (200 fichas)</button></div>
+          <p class="hint" id="nitro-hint">En Expresso Nitro las ciegas suben cada minuto: cuando cambien, ponlas en «Ciega pequeña» y «Ciega grande» antes de la siguiente mano.</p>
+        </div>
         <div class="fields">
           <div class="field"><label for="in-seats">Asientos</label>
             <select id="in-seats"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></div>
@@ -548,7 +552,7 @@ summary { cursor: pointer; }
     for (const c of H.hero) dead[c] = 1;
     for (const c of board) dead[c] = 1;
     const post = (seat) => { const out = []; for (let k = 1; k <= Math.min(st, 3); k++) if (board.length >= k + 2) out.push({ action: streetAct(seat, k), board: board.slice(0, k + 2) }); return out; };
-    const ranges = eqSeats.map((seat) => E.buildRange({ band: E.villainBand(preKeyFor(seat, pf), styleOf(seat), S), streets: post(seat), type: styleOf(seat) }, dead));
+    const ranges = eqSeats.map((seat) => E.buildRange({ band: E.villainBand(preKeyFor(seat, pf), styleOf(seat), S, H.n), streets: post(seat), type: styleOf(seat) }, dead));
     const res = E.equity(H.hero, board, ranges, { iters: 20000, timeMs: 140 });
     // Rival principal: el último que ha apostado en esta calle; si no, quien subió antes del flop.
     let main = null;
@@ -856,6 +860,9 @@ summary { cursor: pointer; }
     $('in-seats').value = String(T.seats.length); $('in-seats').disabled = playing;
     $('in-sb').value = T.sb; $('in-bb').value = T.bb; $('in-sb').disabled = playing; $('in-bb').disabled = playing;
     $('btn-all').disabled = playing;
+    $('btn-nitro').disabled = playing; $('btn-six').disabled = playing;
+    $('btn-nitro').setAttribute('aria-pressed', String(T.format === 'nitro')); $('btn-six').setAttribute('aria-pressed', String(T.format !== 'nitro'));
+    $('nitro-hint').hidden = T.format !== 'nitro';
     $('btn-wipe').textContent = ui.wipe ? 'Toca otra vez para borrar todo' : 'Nueva mesa';
     $('btn-undo').disabled = !hist.length;
     const ed = $('seat-ed');
@@ -944,6 +951,14 @@ summary { cursor: pointer; }
       case 'close-ed': ui.sel = null; render(); return;
       case 'btn-undo': { const s = hist.pop(); ui.quickEnd = false; if (s) { T = s.T; H = s.H; ui.err = ''; ui.amtFor = null; ui.slot = null; } render(); return; }
       case 'btn-clear': { const tgt = cardTarget(); if (tgt == null) return; snap(); if (tgt < 2) H.hero[tgt] = null; else H.board[tgt - 2] = null; ui.slot = tgt; render(); return; }
+      case 'btn-nitro': case 'btn-six': {
+        const nitro = t.id === 'btn-nitro';
+        snap();
+        T = nitro
+          ? { sb: 10, bb: 20, dealer: 0, format: 'nitro', seats: ['Tú', 'Rival 1', 'Rival 2'].map((n) => ({ name: n, stack: 300, on: true, style: 'normal' })) }
+          : Object.assign(defaultTable(), { format: 'six' });
+        H = null; ui.sel = null; ui.quickEnd = false; render(); return;
+      }
       case 'btn-all': { const v = parseFloat($('in-all').value); if (v > 0) { snap(); T.seats.forEach((s) => { if (s.on) s.stack = v; }); } render(); return; }
       case 'btn-wipe':
         if (!ui.wipe) { ui.wipe = true; render(); return; }

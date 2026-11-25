@@ -210,15 +210,16 @@
   const TYPE_MULT = { tight: 0.7, normal: 1, loose: 1.45, maniac: 2 };
   const BLUFF_MULT = { tight: 0.6, normal: 1, loose: 1.3, maniac: 1.9 };
 
-  function villainBand(action, type, stack) {
+  function villainBand(action, type, stack, players) {
+    const short = players && players <= 3; // mesas de 3 (p. ej. Expresso): rangos mucho más amplios
     const m = TYPE_MULT[type] || 1;
     const c = (lo, hi) => [lo, Math.min(1, hi * m)];
     switch (action) {
       case 'limp': return c(0.05, 0.45);
-      case 'raise': return c(0, 0.18);
+      case 'raise': return c(0, short ? 0.40 : 0.18);
       case '3bet': return c(0, 0.07);
       case '4bet': return c(0, 0.03);
-      case 'allin': return c(0, Math.min(0.6, Math.max(0.025, 2.2 / Math.max(stack, 1))));
+      case 'allin': return c(0, short ? Math.min(0.75, Math.max(0.08, 4 / Math.max(stack, 1))) : Math.min(0.6, Math.max(0.025, 2.2 / Math.max(stack, 1))));
       case 'caller': return c(0.03, 0.30);
       default: return c(0.03, 0.32); // pagó tu subida
     }
@@ -405,7 +406,7 @@
       }
       R(`Como ${where}, un buen jugador entra subiendo solo con el ${pct(rfi)} de mejores manos.`);
       if (p <= rfi) {
-        const size = pos === 'SB' ? 3 : S <= 30 ? 2.2 : 2.5;
+        const size = S <= 20 ? 2 : pos === 'SB' ? 3 : S <= 30 ? 2.2 : 2.5;
         const mix = p > rfi * 0.85 ? 'Mano justa: sube, pero si alguien vuelve a subir fuerte, retírate.' : null;
         return out('RAISE', size, `Sube a ${bb(size)}`, { mix });
       }
@@ -448,7 +449,7 @@
     if (preAction === 'raise') {
       const Rsz = ctx.facing || (toCall + heroIn);
       if (S <= 18) {
-        const rejam = Math.min(0.35, 0.13 * (12 / S));
+        const rejam = Math.min(players <= 3 ? 0.5 : 0.35, 0.13 * (12 / S) * (players <= 3 ? 1.8 : 1));
         R(`Te quedan pocas fichas (${bb(S)}): o vas con todo o te retiras. Se va con todo con el ${pct(rejam)} de mejores manos.`);
         return p <= rejam ? out('ALLIN', S, allin(S)) : out('FOLD', 0, 'Retírate');
       }
